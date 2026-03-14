@@ -52,6 +52,21 @@ def main() -> None:
     print(f"Total encoded  : {total_compressed:,} bytes ({total_compressed / 1024:.1f} KiB)")
     print(f"Compression    : {raw_bytes / total_compressed:.2f}x")
 
+    # ----- Stage 3: Decode -----
+    print("\nDecoding via CacheGenDecoder...")
+    from decoder import CacheGenDecoder
+    decoder = CacheGenDecoder()
+    reconstructed = decoder.decode(encoded_chunks)
+
+    print(f"\nReconstructed shape: {tuple(reconstructed.shape)}")
+    print(f"Reconstructed dtype: {reconstructed.dtype}")
+    
+    mse = torch.nn.functional.mse_loss(
+        kv_cache.to(torch.float32), 
+        reconstructed.to(torch.float32)
+    )
+    print(f"Quantization MSE   : {mse.item():.6f}")
+
 
 if __name__ == "__main__":
     main()
