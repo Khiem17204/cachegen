@@ -1,29 +1,41 @@
 #!/usr/bin/env python
-"""Example: compress a dummy FP16 KV cache through the CacheGen encoder."""
+"""
+Example: Extract KV cache from GPT-2 and compress it using CacheGenEncoder.
+This demonstrates the connection between Stage 1 (Extraction) and Stage 2 (Encoding).
+"""
 
 import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from kv_extraction_hf import KVCacheExtractor
 from encoder import CacheGenEncoder
 
 
 def main() -> None:
     # ----- Configuration -----
-    num_layers = 2
-    num_heads = 8
-    seq_len = 256
-    head_dim = 64
+    model_name = "gpt2"
+    prompt = (
+        "CacheGen compresses the KV cache of large language models to "
+        "reduce streaming latency while preserving generation quality."
+    )
     chunk_size = 64
     compression_level = 3
 
-    # ----- Create a dummy KV cache -----
-    kv_cache = torch.randn(
-        num_layers, 2, num_heads, seq_len, head_dim, dtype=torch.float16
-    )
+    # ----- Stage 1: KV Cache Extraction -----
+    print(f"Loading {model_name}...")
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(model_name)
+    
+    extractor = KVCacheExtractor(model, tokenizer)
+    print("Extracting KV cache from prompt...")
+    kv_cache = extractor.extract(prompt)
 
     raw_bytes = kv_cache.nelement() * kv_cache.element_size()
-    print(f"Input KV shape : {tuple(kv_cache.shape)}")
-    print(f"Raw size       : {raw_bytes:,} bytes ({raw_bytes / 1024:.1f} KiB)")
+    print(f"\nExtracted KV shape: {tuple(kv_cache.shape)}")
+    print(f"Raw shape logic   : [num_layers, 2 (k/v), num_heads, seq_len, head_dim]")
+    print(f"Raw size          : {raw_bytes:,} bytes ({raw_bytes / 1024:.1f} KiB)")
 
-    # ----- Encode -----
+    # ----- Stage 2: Encode -----
+    print("\nEncoding via CacheGenEncoder...")
     encoder = CacheGenEncoder(
         chunk_size=chunk_size,
         compression_level=compression_level,
