@@ -8,6 +8,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from kv_extraction_hf import KVCacheExtractor
 from encoder import CacheGenEncoder
+from decoder import CacheGenDecoder
 
 
 def main() -> None:
@@ -54,7 +55,6 @@ def main() -> None:
 
     # ----- Stage 3: Decode -----
     print("\nDecoding via CacheGenDecoder...")
-    from decoder import CacheGenDecoder
     decoder = CacheGenDecoder()
     reconstructed = decoder.decode(encoded_chunks)
 
