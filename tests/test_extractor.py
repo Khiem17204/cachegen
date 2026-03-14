@@ -23,9 +23,9 @@ GPT2_NUM_HEADS = 12
 GPT2_HEAD_DIM = 64
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function")
 def extractor():
-    """Load GPT-2 once and share across all tests in this module."""
+    """Load GPT-2 for each test to avoid PyTorch sequential forward pass bus errors."""
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     model = AutoModelForCausalLM.from_pretrained(MODEL_NAME)
     return KVCacheExtractor(model, tokenizer, device="cpu")

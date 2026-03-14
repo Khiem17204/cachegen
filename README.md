@@ -8,6 +8,81 @@ Verify that KV cache compression yields a **3–4x compression ratio**, **reduce
 
 ---
 
+## Stage 1 — KV Cache Extraction
+
+A standalone, reusable module for intercepting raw FP16 KV tensors from any HuggingFace causal language model.
+
+### Installation
+
+```bash
+pip install -r requirements.txt
+```
+
+Dependencies: `torch`, `transformers`, `pytest`.
+
+### Quick Start
+
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from kv_extraction_hf import KVCacheExtractor
+
+model = AutoModelForCausalLM.from_pretrained("gpt2")
+tokenizer = AutoTokenizer.from_pretrained("gpt2")
+
+extractor = KVCacheExtractor(model, tokenizer)
+kv_tensor = extractor.extract("Hello, world!")
+
+print(kv_tensor.shape)   # [12, 2, 12, 4, 64]  for GPT-2
+print(kv_tensor.dtype)   # torch.float16
+```
+
+### API Reference
+
+#### `KVCacheExtractor(model, tokenizer, device=None)`
+
+| Parameter   | Type                       | Description |
+|-------------|----------------------------|-------------|
+| `model`     | `PreTrainedModel`          | A loaded HuggingFace causal LM (GPT-2, LLaMA, Mistral, etc.) |
+| `tokenizer` | `PreTrainedTokenizerBase`  | The corresponding tokenizer |
+| `device`    | `str \| None`              | Target device. Auto-detects `cuda` → `mps` → `cpu` if `None` |
+
+#### `extractor.extract(prompt: str) -> torch.Tensor`
+
+Runs a single prefill forward pass and returns the KV cache reshaped into:
+
+```
+[num_layers, 2, num_kv_heads, seq_len, head_dim]
+```
+
+- Dimension `1` (size 2) = `[key, value]`
+- Output is always **FP16** and **contiguous** in memory
+- Supports Grouped Query Attention (GQA) — `num_kv_heads` may differ from `num_attention_heads`
+
+### Using in External Projects
+
+Copy the `kv_extraction_hf/` directory into your project and import:
+
+```python
+from kv_extraction_hf import KVCacheExtractor
+```
+
+The module depends only on `torch` and `transformers` — no other frameworks required.
+
+### Running Tests
+
+```bash
+python -m pytest tests/test_extractor.py -v
+```
+
+### Example Script
+
+```bash
+python example.py
+# → Saves kv_cache.pt to disk and prints shape/size info
+```
+
+---
+
 ## Implementation Approach
 
 To minimize engineering bottlenecks with memory management, this reproduction utilizes a **Two-Phase Strategy**:
@@ -65,5 +140,3 @@ To minimize engineering bottlenecks with memory management, this reproduction ut
 
 * **Modular Structure:** Code is divided cleanly into `kv_extraction_hf/`, `encoder/`, `decoder/`, `vllm_integration/`, and `experiments/`.
 * **MVP Simplification:** Prioritize basic quantization and `zstd` compression over complex custom entropy coding for the initial pass.
-
-
