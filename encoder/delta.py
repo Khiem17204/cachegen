@@ -16,28 +16,28 @@ class DeltaEncoder:
     When the input dtype is INT8, the output is promoted to **INT16** so that
     the subtraction ``(-128) - (127) = -255`` does not overflow.
 
-    Parameters
-    ----------
-    dim : int
-        Axis along which to compute deltas (default ``-2``, i.e. ``seq_len``).
+    Attributes:
+        dim: Axis along which to compute deltas.
     """
 
     def __init__(self, dim: int = -2) -> None:
+        """Initialise the delta encoder.
+
+        Args:
+            dim: Axis along which to compute deltas (default ``-2``,
+                i.e. ``seq_len``).
+        """
         self.dim = dim
 
     def encode(self, tensor: torch.Tensor) -> torch.Tensor:
         """Compute forward deltas.
 
-        Parameters
-        ----------
-        tensor : torch.Tensor
-            Input tensor (any dtype).
+        Args:
+            tensor: Input tensor of any dtype.
 
-        Returns
-        -------
-        torch.Tensor
-            Same shape as *tensor*.  Dtype is INT16 when the input is INT8,
-            otherwise matches the input dtype.
+        Returns:
+            A tensor with the same shape as *tensor*.  Dtype is INT16 when
+            the input is INT8; otherwise matches the input dtype.
         """
         # Promote INT8 to INT16 to avoid overflow on subtraction.
         if tensor.dtype == torch.int8:

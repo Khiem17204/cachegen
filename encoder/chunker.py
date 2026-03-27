@@ -12,31 +12,37 @@ class Chunker:
     ``[num_layers, 2, num_heads, seq_len, head_dim]``
     and chunking is performed along **dim 3** (``seq_len``).
 
-    Parameters
-    ----------
-    chunk_size : int
-        Maximum number of tokens per chunk.  The last chunk may be smaller
-        if ``seq_len`` is not evenly divisible.
+    Attributes:
+        chunk_size: Maximum number of tokens per chunk.
     """
 
     def __init__(self, chunk_size: int = 64) -> None:
+        """Initialise the chunker.
+
+        Args:
+            chunk_size: Maximum number of tokens per chunk.  The last chunk
+                may be smaller if ``seq_len`` is not evenly divisible.
+
+        Raises:
+            ValueError: If ``chunk_size`` is not positive.
+        """
         if chunk_size <= 0:
             raise ValueError(f"chunk_size must be positive, got {chunk_size}")
         self.chunk_size = chunk_size
 
     def chunk(self, tensor: torch.Tensor) -> list[torch.Tensor]:
-        """Split *tensor* into chunks.
+        """Split *tensor* into chunks along the sequence-length axis.
 
-        Parameters
-        ----------
-        tensor : torch.Tensor
-            Shape ``[num_layers, 2, num_heads, seq_len, head_dim]``.
+        Args:
+            tensor: Input KV cache tensor of shape
+                ``[num_layers, 2, num_heads, seq_len, head_dim]``.
 
-        Returns
-        -------
-        list[torch.Tensor]
-            Each element has shape
+        Returns:
+            A list of tensors, each with shape
             ``[num_layers, 2, num_heads, ≤chunk_size, head_dim]``.
+
+        Raises:
+            ValueError: If *tensor* is not 5-D.
         """
         if tensor.ndim != 5:
             raise ValueError(

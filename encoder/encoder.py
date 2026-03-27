@@ -7,26 +7,23 @@ from dataclasses import dataclass
 import torch
 
 from .chunker import Chunker
-from .quantizer import Quantizer
 from .delta import DeltaEncoder
 from .entropy import EntropyCoder
+from .quantizer import Quantizer
 
 
 @dataclass
 class EncodedChunk:
     """Container for a single compressed KV cache chunk.
 
-    Attributes
-    ----------
-    data : bytes
-        Zstd-compressed byte stream of the delta-encoded, quantized tensor.
-    scales : torch.Tensor
-        FP16 scale factors needed by the decoder to dequantize.
-        Shape: ``original_shape[:-1] + (1,)`` (before chunking).
-    original_dtype : torch.dtype
-        Dtype of the tensor *before* quantization (e.g. ``torch.float16``).
-    original_shape : tuple[int, ...]
-        Shape of the chunk tensor *before* quantization.
+    Attributes:
+        data: Zstd-compressed byte stream of the delta-encoded,
+            quantized tensor.
+        scales: FP16 scale factors needed by the decoder to dequantize.
+            Shape: ``original_shape[:-1] + (1,)`` (before chunking).
+        original_dtype: Dtype of the tensor *before* quantization
+            (e.g. ``torch.float16``).
+        original_shape: Shape of the chunk tensor *before* quantization.
     """
 
     data: bytes
@@ -38,12 +35,11 @@ class EncodedChunk:
 class CacheGenEncoder:
     """End-to-end encoder: chunk → quantize → delta-encode → zstd compress.
 
-    Parameters
-    ----------
-    chunk_size : int
-        Number of tokens per chunk (passed to :class:`Chunker`).
-    compression_level : int
-        Zstd compression level 1–22 (passed to :class:`EntropyCoder`).
+    Attributes:
+        chunker: ``Chunker`` instance for splitting along ``seq_len``.
+        quantizer: ``Quantizer`` instance for INT8 quantization.
+        delta_encoder: ``DeltaEncoder`` for inter-token differencing.
+        entropy_coder: ``EntropyCoder`` for zstd compression.
     """
 
     def __init__(
@@ -51,6 +47,14 @@ class CacheGenEncoder:
         chunk_size: int = 64,
         compression_level: int = 3,
     ) -> None:
+        """Initialise the encoder pipeline.
+
+        Args:
+            chunk_size: Number of tokens per chunk (passed to
+                ``Chunker``).
+            compression_level: Zstd compression level ``1–22`` (passed to
+                ``EntropyCoder``).
+        """
         self.chunker = Chunker(chunk_size=chunk_size)
         self.quantizer = Quantizer()
         self.delta_encoder = DeltaEncoder(dim=-2)  # seq_len axis
@@ -59,17 +63,14 @@ class CacheGenEncoder:
     def encode(self, kv_cache: torch.Tensor) -> list[EncodedChunk]:
         """Compress a full KV cache tensor.
 
-        Parameters
-        ----------
-        kv_cache : torch.Tensor
-            Shape ``[num_layers, 2, num_heads, seq_len, head_dim]``,
-            typically FP16.
+        Args:
+            kv_cache: Input tensor of shape
+                ``[num_layers, 2, num_heads, seq_len, head_dim]``,
+                typically FP16.
 
-        Returns
-        -------
-        list[EncodedChunk]
-            One :class:`EncodedChunk` per chunk, containing the compressed
-            bytes plus metadata required for decoding.
+        Returns:
+            A list of ``EncodedChunk`` objects, one per chunk, containing
+            the compressed bytes plus metadata required for decoding.
         """
         chunks = self.chunker.chunk(kv_cache)
         encoded_chunks: list[EncodedChunk] = []
