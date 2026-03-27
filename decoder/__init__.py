@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from .decoder import CacheGenDecoder
 from .chunker import Dechunker
-from .quantizer import Dequantizer
+from .decoder import CacheGenDecoder
 from .delta import DeltaDecoder
 from .entropy import EntropyDecoder
+from .quantizer import Dequantizer
 
 __all__ = [
     "CacheGenDecoder",

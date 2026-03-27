@@ -6,12 +6,12 @@ import torch
 
 
 class Dequantizer:
-    """Restores floating point values from INT8 using Max-Abs scales.
+    """Restore floating-point values from INT8 using Max-Abs scales.
 
     The dequantized value is::
 
         x_fp = x_q * scale
-        
+
     Where ``scale = max(|x|) / 127`` was computed during encoding.
     """
 
@@ -23,16 +23,12 @@ class Dequantizer:
     def dequantize(tensor: torch.Tensor, scales: torch.Tensor) -> torch.Tensor:
         """Dequantize an INT8 tensor back to floating point.
 
-        Parameters
-        ----------
-        tensor : torch.Tensor
-            INT8 quantized tensor.
-        scales : torch.Tensor
-            FP16 scale factors. Shape is ``tensor.shape[:-1] + (1,)``.
+        Args:
+            tensor: INT8 quantized tensor of arbitrary shape.
+            scales: FP16 scale factors with shape
+                ``tensor.shape[:-1] + (1,)``.
 
-        Returns
-        -------
-        torch.Tensor
+        Returns:
             Reconstructed FP16 tensor with the same shape as *tensor*.
         """
         # Multiply the INT8 tensor by the scale factors.
