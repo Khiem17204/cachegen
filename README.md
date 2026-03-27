@@ -46,7 +46,8 @@ To minimize engineering bottlenecks with memory management, this reproduction ut
 ### Stage 4: vLLM Integration & Streaming Simulation
 
 * **Objective:** Integrate the proven Phase A encoder/decoder directly into vLLM's cache engine.
-* **Sub-objectives:** * Map the chunking logic to vLLM's existing PagedAttention physical blocks.
+* **Sub-objectives:**
+* Map the chunking logic to vLLM's existing PagedAttention physical blocks.
 * Simulate network bandwidth constraints (e.g., 100 MB/s to 1 GB/s) to stream compressed blocks instead of full raw tensors.
 
 
