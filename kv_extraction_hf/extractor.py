@@ -1,14 +1,13 @@
-"""
-KVCacheExtractor — Intercept and extract raw FP16 KV tensors from
-HuggingFace causal language models.
+"""KVCacheExtractor: intercept and extract raw FP16 KV tensors.
 
+Extracts KV cache tensors from HuggingFace causal language models.
 This module is intentionally decoupled from any training loop or serving
-framework.  It depends only on PyTorch and HuggingFace `transformers`.
+framework.  It depends only on PyTorch and HuggingFace ``transformers``.
 """
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional, Union
 
 import torch
 from transformers import PreTrainedModel, PreTrainedTokenizerBase
@@ -19,30 +18,32 @@ class KVCacheExtractor:
 
     The ``extract`` method runs a single prefill forward pass using
     ``use_cache=True`` and reshapes the resulting ``past_key_values``
-    into a standardized contiguous tensor of shape::
+    into a standardised contiguous tensor of shape
+    ``[num_layers, 2, num_kv_heads, seq_len, head_dim]``
+    where the ``2`` dimension corresponds to ``[key, value]``.
 
-        [num_layers, 2, num_kv_heads, seq_len, head_dim]
-
-    where the ``2`` dimension corresponds to *[key, value]*.
-
-    Parameters
-    ----------
-    model : PreTrainedModel
-        A loaded HuggingFace causal language model (e.g. GPT-2, LLaMA,
-        Mistral).  The model will be set to ``eval()`` mode automatically.
-    tokenizer : PreTrainedTokenizerBase
-        The corresponding tokenizer.
-    device : str | torch.device | None
-        Target device.  If *None*, auto-detected as ``cuda`` → ``mps``
-        → ``cpu`` in that order.
+    Attributes:
+        model: The HuggingFace causal language model in eval mode.
+        tokenizer: The corresponding tokenizer.
+        device: Resolved target device for inference.
     """
 
     def __init__(
         self,
         model: PreTrainedModel,
         tokenizer: PreTrainedTokenizerBase,
-        device: Optional[str | torch.device] = None,
+        device: Optional[Union[str, torch.device]] = None,
     ) -> None:
+        """Initialise the extractor.
+
+        Args:
+            model: A loaded HuggingFace causal language model (e.g. GPT-2,
+                LLaMA, Mistral).  The model will be set to ``eval()`` mode
+                automatically.
+            tokenizer: The corresponding tokenizer.
+            device: Target device.  If ``None``, auto-detected as
+                ``cuda`` → ``mps`` → ``cpu`` in that order.
+        """
         self.model = model
         self.tokenizer = tokenizer
         self.device = self._resolve_device(device)
@@ -58,15 +59,12 @@ class KVCacheExtractor:
     def extract(self, prompt: str) -> torch.Tensor:
         """Run a prefill pass and return the KV cache as a contiguous FP16 tensor.
 
-        Parameters
-        ----------
-        prompt : str
-            The text prompt to feed through the model.
+        Args:
+            prompt: The text prompt to feed through the model.
 
-        Returns
-        -------
-        torch.Tensor
-            Shape ``[num_layers, 2, num_kv_heads, seq_len, head_dim]``,
+        Returns:
+            A ``torch.Tensor`` of shape
+            ``[num_layers, 2, num_kv_heads, seq_len, head_dim]``,
             dtype ``torch.float16``, contiguous in memory.
         """
         input_ids = self._tokenize(prompt)
@@ -82,27 +80,40 @@ class KVCacheExtractor:
     # ------------------------------------------------------------------
 
     def _tokenize(self, prompt: str) -> torch.Tensor:
-        """Tokenize *prompt* and return ``input_ids`` on the target device."""
+        """Tokenize *prompt* and return ``input_ids`` on the target device.
+
+        Args:
+            prompt: Raw text string to tokenize.
+
+        Returns:
+            A 2-D ``torch.Tensor`` of token IDs with shape ``[1, seq_len]``.
+        """
         encoded = self.tokenizer(prompt, return_tensors="pt")
         return encoded["input_ids"].to(self.device)
 
     @staticmethod
-    def _reshape(past_key_values) -> torch.Tensor:
+    def _reshape(
+        past_key_values: Any,
+    ) -> torch.Tensor:
         """Reshape HuggingFace ``past_key_values`` into a single tensor.
 
         Supports both:
-        - **Legacy format** (transformers < 5): a tuple of
+
+        * **Legacy format** (transformers < 5): a tuple of
           ``(key_tensor, value_tensor)`` tuples.
-        - **DynamicCache** (transformers ≥ 5): an object with a ``.layers``
+        * **DynamicCache** (transformers ≥ 5): an object with a ``.layers``
           list where each layer exposes ``.keys`` and ``.values`` tensors.
 
         In both cases the per-layer tensors have shape
         ``[batch, num_kv_heads, seq_len, head_dim]``.
 
-        Returns
-        -------
-        torch.Tensor
-            Shape ``[num_layers, 2, num_kv_heads, seq_len, head_dim]``,
+        Args:
+            past_key_values: The ``past_key_values`` output from a
+                HuggingFace model forward pass.
+
+        Returns:
+            A ``torch.Tensor`` of shape
+            ``[num_layers, 2, num_kv_heads, seq_len, head_dim]``,
             contiguous, FP16, on CPU.
         """
         per_layer: list[torch.Tensor] = []
@@ -110,7 +121,7 @@ class KVCacheExtractor:
         # ── DynamicCache (transformers ≥ 5) ─────────────────────────────
         if hasattr(past_key_values, "layers"):
             for layer in past_key_values.layers:
-                key = layer.keys    # [batch, heads, seq, dim]
+                key = layer.keys  # [batch, heads, seq, dim]
                 value = layer.values
                 kv = torch.stack([key.squeeze(0), value.squeeze(0)], dim=0)
                 per_layer.append(kv)
@@ -126,8 +137,18 @@ class KVCacheExtractor:
         return tensor.cpu().contiguous().half()
 
     @staticmethod
-    def _resolve_device(device: Optional[str | torch.device] = None) -> torch.device:
-        """Auto-detect the best available device."""
+    def _resolve_device(
+        device: Optional[Union[str, torch.device]] = None,
+    ) -> torch.device:
+        """Auto-detect the best available device.
+
+        Args:
+            device: Explicit device string or ``torch.device``.  If ``None``,
+                the method probes ``cuda`` → ``mps`` → ``cpu``.
+
+        Returns:
+            The resolved ``torch.device``.
+        """
         if device is not None:
             return torch.device(device)
         if torch.cuda.is_available():
