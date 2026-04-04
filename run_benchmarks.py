@@ -30,10 +30,12 @@ PROMPTS = {
 
 BANDWIDTHS = [100, 500, 1000]  # Mbps
 TOKEN_LATENCY_S = 0.002  # simulated per-token latency for first token
-HEAD_DIM = 64
-NUM_HEADS = 8
-NUM_LAYERS = 1
-BLOCK_SIZE = 128  # matches chunk granularity for cachegen encoder
+
+# Model presets to emulate differing KV shapes
+MODEL_CONFIGS = [
+    {"name": "opt-1.3b", "num_layers": 1, "num_heads": 12, "head_dim": 64, "block_size": 128},
+    {"name": "mistral-7b", "num_layers": 1, "num_heads": 32, "head_dim": 128, "block_size": 128},
+]
 
 
 def _prompt_to_seq_len(prompt: str) -> int:
@@ -41,9 +43,9 @@ def _prompt_to_seq_len(prompt: str) -> int:
     return max(len(prompt.split()), 8)
 
 
-def run_baseline(prompt: str, bandwidth_mbps: int) -> Dict:
+def run_baseline(prompt: str, bandwidth_mbps: int, cfg: Dict) -> Dict:
     seq_len = _prompt_to_seq_len(prompt)
-    kv = torch.randn(NUM_LAYERS, NUM_HEADS, seq_len, HEAD_DIM, dtype=torch.float16)
+    kv = torch.randn(cfg["num_layers"], cfg["num_heads"], seq_len, cfg["head_dim"], dtype=torch.float16)
     raw_bytes = kv.numel() * kv.element_size()
 
     transfer_time = (raw_bytes * 8) / (bandwidth_mbps * 1_000_000)
@@ -56,6 +58,7 @@ def run_baseline(prompt: str, bandwidth_mbps: int) -> Dict:
     return {
         "mode": "baseline",
         "prompt_len": len(prompt.split()),
+        "model": cfg["name"],
         "bandwidth_mbps": bandwidth_mbps,
         "raw_bytes": raw_bytes,
         "compressed_bytes": raw_bytes,
@@ -66,10 +69,10 @@ def run_baseline(prompt: str, bandwidth_mbps: int) -> Dict:
     }
 
 
-def run_cachegen(prompt: str, bandwidth_mbps: int) -> Dict:
+def run_cachegen(prompt: str, bandwidth_mbps: int, cfg: Dict) -> Dict:
     seq_len = _prompt_to_seq_len(prompt)
     # vLLM physical block layout: [L, H, S, D]
-    kv_block = torch.randn(NUM_LAYERS, NUM_HEADS, seq_len, HEAD_DIM, dtype=torch.float16)
+    kv_block = torch.randn(cfg["num_layers"], cfg["num_heads"], seq_len, cfg["head_dim"], dtype=torch.float16)
 
     raw_bytes = kv_block.numel() * kv_block.element_size()
 
@@ -88,6 +91,7 @@ def run_cachegen(prompt: str, bandwidth_mbps: int) -> Dict:
     return {
         "mode": "cachegen",
         "prompt_len": len(prompt.split()),
+        "model": cfg["name"],
         "bandwidth_mbps": bandwidth_mbps,
         "raw_bytes": raw_bytes,
         "compressed_bytes": compressed_bytes,
@@ -101,15 +105,16 @@ def run_cachegen(prompt: str, bandwidth_mbps: int) -> Dict:
 def main() -> None:
     runs: List[Dict] = []
 
-    for prompt_name, prompt in PROMPTS.items():
-        for bw in BANDWIDTHS:
-            baseline = run_baseline(prompt, bw)
-            baseline["prompt_name"] = prompt_name
-            runs.append(baseline)
+    for cfg in MODEL_CONFIGS:
+        for prompt_name, prompt in PROMPTS.items():
+            for bw in BANDWIDTHS:
+                baseline = run_baseline(prompt, bw, cfg)
+                baseline["prompt_name"] = prompt_name
+                runs.append(baseline)
 
-            cachegen = run_cachegen(prompt, bw)
-            cachegen["prompt_name"] = prompt_name
-            runs.append(cachegen)
+                cachegen = run_cachegen(prompt, bw, cfg)
+                cachegen["prompt_name"] = prompt_name
+                runs.append(cachegen)
 
     # quality evaluation uses deterministic outputs so the difference should be ~0
     quality = evaluate_quality()
