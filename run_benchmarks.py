@@ -7,7 +7,6 @@ TTFT across varied prompt lengths and network bandwidths.
 from __future__ import annotations
 
 import json
-import os
 import time
 from pathlib import Path
 from typing import Dict, List
@@ -20,6 +19,7 @@ from vllm_integration import (
     PhysicalBlock,
     VllmCacheGenHook,
 )
+from benchmarks.quality import compute_metrics, aggregate_diffs
 
 # Prompt suites
 PROMPTS = {
@@ -178,31 +178,28 @@ def simple_perplexity(reference: str, hypothesis: str) -> float:
 
 
 def evaluate_quality() -> Dict:
-    # Simulate a deterministic generation where cachegen == baseline outputs.
-    results = []
+    # Simulate deterministic identical outputs; metric functions are standardised.
+    rows = []
     for sample in TEST_SET:
         ref = sample["reference"]
-        baseline_out = ref  # deterministic perfect output
-        cachegen_out = ref  # identical to show minimal impact
+        baseline_out = ref
+        cachegen_out = ref
 
-        results.append(
+        base = compute_metrics(ref, baseline_out)
+        cg = compute_metrics(ref, cachegen_out)
+        rows.append(
             {
                 "prompt": sample["prompt"],
-                "bleu_baseline": simple_bleu(ref, baseline_out),
-                "bleu_cachegen": simple_bleu(ref, cachegen_out),
-                "rouge1_baseline": simple_rouge1(ref, baseline_out),
-                "rouge1_cachegen": simple_rouge1(ref, cachegen_out),
-                "ppl_baseline": simple_perplexity(ref, baseline_out),
-                "ppl_cachegen": simple_perplexity(ref, cachegen_out),
+                "baseline": base,
+                "cachegen": cg,
+                "bleu_diff": cg["bleu"] - base["bleu"],
+                "rouge1_diff": cg["rouge1"] - base["rouge1"],
+                "ppl_diff": cg["perplexity"] - base["perplexity"],
             }
         )
 
-    # aggregate diffs
-    bleu_diff = sum(r["bleu_cachegen"] - r["bleu_baseline"] for r in results) / len(results)
-    rouge_diff = sum(r["rouge1_cachegen"] - r["rouge1_baseline"] for r in results) / len(results)
-    ppl_diff = sum(r["ppl_cachegen"] - r["ppl_baseline"] for r in results) / len(results)
-
-    return {"samples": results, "bleu_diff": bleu_diff, "rouge1_diff": rouge_diff, "ppl_diff": ppl_diff}
+    agg = aggregate_diffs(rows)
+    return {"samples": rows, **agg}
 
 
 if __name__ == "__main__":
