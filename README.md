@@ -61,6 +61,13 @@ To minimize engineering bottlenecks with memory management, this reproduction ut
 * *Time to First Token (TTFT):* Measure end-to-end load and generation speed in the vLLM server.
 * *Model Quality:* Verify output accuracy using perplexity, BLEU, and ROUGE on tasks like QA and summarization.
 
+## Running Stage 5 Benchmarks
+
+1. Install deps: `pip install -r requirements.txt` (adds matplotlib/pandas for plotting).
+2. Run the harness: `python run_benchmarks.py` → writes `benchmarks/results.json` with compression, latency, and TTFT for baseline vs CacheGen across prompt sizes and bandwidths.
+3. Visualize: `python visualize_results.py` → saves `benchmarks/ttft_vs_bw.png` and `benchmarks/compression_ratio.png`.
+4. Quality check: included in `run_benchmarks.py`—BLEU/ROUGE/perplexity deltas are reported in the JSON under `quality`.
+
 
 ## Project Architecture & Scope
 
