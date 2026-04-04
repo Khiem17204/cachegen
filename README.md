@@ -68,6 +68,15 @@ To minimize engineering bottlenecks with memory management, this reproduction ut
 3. Visualize: `python visualize_results.py` → saves `benchmarks/ttft_vs_bw.png` and `benchmarks/compression_ratio.png`.
 4. Quality check: included in `run_benchmarks.py`—BLEU/ROUGE/perplexity deltas are reported in the JSON under `quality`.
 
+### Latest benchmark snapshot (simulated vLLM shim)
+
+- Artifacts: see `benchmarks/results.json`, `ttft_vs_bw.png`, `compression_ratio.png`, `quality_deltas.png`.
+- Averages across short/med/long prompts and model configs (opt-1.3b + mistral-7b shapes):
+  - Compression ratio (raw/compressed): ~1.46× (range 1.45–1.47).
+  - Transfer time: baseline 0.00079s → CacheGen 0.00054s (avg) due to smaller payloads.
+  - TTFT: baseline 3.6ms → CacheGen 7.2ms (avg) reflecting decode overhead; end-to-end still bounded by simulated bandwidth.
+  - Quality deltas (BLEU/ROUGE/“ppl” surrogate): ~0; simulated outputs kept identical.
+
 
 ## Project Architecture & Scope
 

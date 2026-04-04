@@ -1,0 +1,246 @@
+{
+  "runs": [
+    {
+      "mode": "baseline",
+      "prompt_len": 6,
+      "bandwidth_mbps": 100,
+      "raw_bytes": 8192,
+      "compressed_bytes": 8192,
+      "compression_ratio": 1.0,
+      "transfer_time": 0.00065536,
+      "decode_time": 0.0,
+      "ttft": 0.0033588744699954987,
+      "prompt_name": "short"
+    },
+    {
+      "mode": "cachegen",
+      "prompt_len": 6,
+      "bandwidth_mbps": 100,
+      "raw_bytes": 8192,
+      "compressed_bytes": 5613,
+      "compression_ratio": 1.4594690896133975,
+      "transfer_time": 0.00044904,
+      "decode_time": 0.004009832628071308,
+      "ttft": 0.02474683430045843,
+      "prompt_name": "short"
+    },
+    {
+      "mode": "baseline",
+      "prompt_len": 6,
+      "bandwidth_mbps": 500,
+      "raw_bytes": 8192,
+      "compressed_bytes": 8192,
+      "compression_ratio": 1.0,
+      "transfer_time": 0.000131072,
+      "decode_time": 0.0,
+      "ttft": 0.0027987919747829437,
+      "prompt_name": "short"
+    },
+    {
+      "mode": "cachegen",
+      "prompt_len": 6,
+      "bandwidth_mbps": 500,
+      "raw_bytes": 8192,
+      "compressed_bytes": 5640,
+      "compression_ratio": 1.4524822695035462,
+      "transfer_time": 9.024e-05,
+      "decode_time": 9.341631084680557e-05,
+      "ttft": 0.0037006670609116554,
+      "prompt_name": "short"
+    },
+    {
+      "mode": "baseline",
+      "prompt_len": 6,
+      "bandwidth_mbps": 1000,
+      "raw_bytes": 8192,
+      "compressed_bytes": 8192,
+      "compression_ratio": 1.0,
+      "transfer_time": 6.5536e-05,
+      "decode_time": 0.0,
+      "ttft": 0.003551333211362362,
+      "prompt_name": "short"
+    },
+    {
+      "mode": "cachegen",
+      "prompt_len": 6,
+      "bandwidth_mbps": 1000,
+      "raw_bytes": 8192,
+      "compressed_bytes": 5653,
+      "compression_ratio": 1.449142048469839,
+      "transfer_time": 4.5224e-05,
+      "decode_time": 0.00011624954640865326,
+      "ttft": 0.005023208446800709,
+      "prompt_name": "short"
+    },
+    {
+      "mode": "baseline",
+      "prompt_len": 24,
+      "bandwidth_mbps": 100,
+      "raw_bytes": 24576,
+      "compressed_bytes": 24576,
+      "compression_ratio": 1.0,
+      "transfer_time": 0.00196608,
+      "decode_time": 0.0,
+      "ttft": 0.004547708667814732,
+      "prompt_name": "medium"
+    },
+    {
+      "mode": "cachegen",
+      "prompt_len": 24,
+      "bandwidth_mbps": 100,
+      "raw_bytes": 24576,
+      "compressed_bytes": 16722,
+      "compression_ratio": 1.4696806602081092,
+      "transfer_time": 0.00133776,
+      "decode_time": 0.0002297908067703247,
+      "ttft": 0.006076790392398834,
+      "prompt_name": "medium"
+    },
+    {
+      "mode": "baseline",
+      "prompt_len": 24,
+      "bandwidth_mbps": 500,
+      "raw_bytes": 24576,
+      "compressed_bytes": 24576,
+      "compression_ratio": 1.0,
+      "transfer_time": 0.000393216,
+      "decode_time": 0.0,
+      "ttft": 0.003046458587050438,
+      "prompt_name": "medium"
+    },
+    {
+      "mode": "cachegen",
+      "prompt_len": 24,
+      "bandwidth_mbps": 500,
+      "raw_bytes": 24576,
+      "compressed_bytes": 16789,
+      "compression_ratio": 1.4638155935433914,
+      "transfer_time": 0.000268624,
+      "decode_time": 0.0001927083358168602,
+      "ttft": 0.004886750131845474,
+      "prompt_name": "medium"
+    },
+    {
+      "mode": "baseline",
+      "prompt_len": 24,
+      "bandwidth_mbps": 1000,
+      "raw_bytes": 24576,
+      "compressed_bytes": 24576,
+      "compression_ratio": 1.0,
+      "transfer_time": 0.000196608,
+      "decode_time": 0.0,
+      "ttft": 0.0027656247839331627,
+      "prompt_name": "medium"
+    },
+    {
+      "mode": "cachegen",
+      "prompt_len": 24,
+      "bandwidth_mbps": 1000,
+      "raw_bytes": 24576,
+      "compressed_bytes": 16803,
+      "compression_ratio": 1.4625959650062488,
+      "transfer_time": 0.000134424,
+      "decode_time": 0.000567958690226078,
+      "ttft": 0.004407875239849091,
+      "prompt_name": "medium"
+    },
+    {
+      "mode": "baseline",
+      "prompt_len": 35,
+      "bandwidth_mbps": 100,
+      "raw_bytes": 35840,
+      "compressed_bytes": 35840,
+      "compression_ratio": 1.0,
+      "transfer_time": 0.0028672,
+      "decode_time": 0.0,
+      "ttft": 0.006138250231742859,
+      "prompt_name": "long"
+    },
+    {
+      "mode": "cachegen",
+      "prompt_len": 35,
+      "bandwidth_mbps": 100,
+      "raw_bytes": 35840,
+      "compressed_bytes": 24394,
+      "compression_ratio": 1.469213741083873,
+      "transfer_time": 0.00195152,
+      "decode_time": 0.0007776673883199692,
+      "ttft": 0.007241625338792801,
+      "prompt_name": "long"
+    },
+    {
+      "mode": "baseline",
+      "prompt_len": 35,
+      "bandwidth_mbps": 500,
+      "raw_bytes": 35840,
+      "compressed_bytes": 35840,
+      "compression_ratio": 1.0,
+      "transfer_time": 0.00057344,
+      "decode_time": 0.0,
+      "ttft": 0.003258749842643738,
+      "prompt_name": "long"
+    },
+    {
+      "mode": "cachegen",
+      "prompt_len": 35,
+      "bandwidth_mbps": 500,
+      "raw_bytes": 35840,
+      "compressed_bytes": 24393,
+      "compression_ratio": 1.4692739720411594,
+      "transfer_time": 0.000390288,
+      "decode_time": 0.000504249706864357,
+      "ttft": 0.0048908330500125885,
+      "prompt_name": "long"
+    },
+    {
+      "mode": "baseline",
+      "prompt_len": 35,
+      "bandwidth_mbps": 1000,
+      "raw_bytes": 35840,
+      "compressed_bytes": 35840,
+      "compression_ratio": 1.0,
+      "transfer_time": 0.00028672,
+      "decode_time": 0.0,
+      "ttft": 0.002848375588655472,
+      "prompt_name": "long"
+    },
+    {
+      "mode": "cachegen",
+      "prompt_len": 35,
+      "bandwidth_mbps": 1000,
+      "raw_bytes": 35840,
+      "compressed_bytes": 24399,
+      "compression_ratio": 1.4689126603549325,
+      "transfer_time": 0.000195192,
+      "decode_time": 0.00036579184234142303,
+      "ttft": 0.0040654586628079414,
+      "prompt_name": "long"
+    }
+  ],
+  "quality": {
+    "samples": [
+      {
+        "prompt": "What is the capital of Germany?",
+        "bleu_baseline": 1.0,
+        "bleu_cachegen": 1.0,
+        "rouge1_baseline": 1.0,
+        "rouge1_cachegen": 1.0,
+        "ppl_baseline": 1.0,
+        "ppl_cachegen": 1.0
+      },
+      {
+        "prompt": "Summarize the role of attention in transformers.",
+        "bleu_baseline": 1.0,
+        "bleu_cachegen": 1.0,
+        "rouge1_baseline": 1.0,
+        "rouge1_cachegen": 1.0,
+        "ppl_baseline": 1.0,
+        "ppl_cachegen": 1.0
+      }
+    ],
+    "bleu_diff": 0.0,
+    "rouge1_diff": 0.0,
+    "ppl_diff": 0.0
+  },
+  "generated_at": 1775343236.737704
+}
