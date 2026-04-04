@@ -5,3 +5,5 @@ zstandard
 matplotlib
 pandas
 requests
+sacrebleu
+rouge-score
