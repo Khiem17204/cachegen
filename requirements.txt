@@ -4,3 +4,4 @@ pytest
 zstandard
 matplotlib
 pandas
+requests
