@@ -66,6 +66,7 @@ class ModelConfig:
 @dataclass
 class RunResult:
     model: str
+    mode: str
     prompt_name: str
     prompt_len_tokens: int
     output_tokens: int
@@ -89,12 +90,13 @@ def parse_model_arg(raw: str) -> ModelConfig:
 async def _bench_single_prompt(
     engine: AsyncLLMEngine,
     model_label: str,
+    mode_label: str,
     prompt_name: str,
     prompt: str,
     sampling_params: SamplingParams,
 ) -> RunResult:
     submitted_at = time.perf_counter()
-    request_id = f"{model_label}-{prompt_name}-{int(submitted_at * 1e6)}"
+    request_id = f"{model_label}-{mode_label}-{prompt_name}-{int(submitted_at * 1e6)}"
 
     # Use streaming generate(); adapt to signature differences across vLLM versions.
     first_token_at: Optional[float] = None
@@ -132,6 +134,7 @@ async def _bench_single_prompt(
 
     return RunResult(
         model=model_label,
+        mode=mode_label,
         prompt_name=prompt_name,
         prompt_len_tokens=prompt_tokens,
         output_tokens=generated_tokens,
@@ -146,6 +149,7 @@ async def bench_model(
     sampling_params: SamplingParams,
     tp_size: int,
     quantization: Optional[str],
+    modes: list[str],
 ) -> List[RunResult]:
     args = AsyncEngineArgs(
         model=cfg.model,
@@ -161,15 +165,17 @@ async def bench_model(
     results: List[RunResult] = []
 
     try:
-        for name, prompt in PROMPTS.items():
-            result = await _bench_single_prompt(
-                engine=engine,
-                model_label=cfg.model,
-                prompt_name=name,
-                prompt=prompt,
-                sampling_params=sampling_params,
-            )
-            results.append(result)
+        for mode in modes:
+            for name, prompt in PROMPTS.items():
+                result = await _bench_single_prompt(
+                    engine=engine,
+                    model_label=cfg.model,
+                    mode_label=mode,
+                    prompt_name=name,
+                    prompt=prompt,
+                    sampling_params=sampling_params,
+                )
+                results.append(result)
     finally:
         # vLLM >=0.4 has async shutdown; older releases expose sync.
         shutdown = getattr(engine, "shutdown", None)
@@ -196,6 +202,7 @@ async def main_async(args: argparse.Namespace) -> None:
             sampling_params,
             tp_size=args.tensor_parallel_size,
             quantization=args.quantization,
+            modes=args.modes,
         )
         all_results.extend(model_results)
 
@@ -212,6 +219,7 @@ async def main_async(args: argparse.Namespace) -> None:
         "models": [asdict(m) for m in args.models],
         "tensor_parallel_size": args.tensor_parallel_size,
         "quantization": args.quantization,
+        "modes": args.modes,
         "runs": [asdict(r) for r in all_results],
     }
 
@@ -256,6 +264,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         type=str,
         default=None,
         help="Optional vLLM quantization mode (e.g., awq, gptq, fp8) with a compatible checkpoint.",
+    )
+    parser.add_argument(
+        "--modes",
+        nargs="+",
+        default=["baseline", "cachegen"],
+        help="Benchmark modes to run (labels only; cachegen hook not yet wired into vLLM).",
     )
     return parser
 

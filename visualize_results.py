@@ -1,10 +1,9 @@
 """Utility to visualize benchmark results.
 
-Supports both schemas:
-- Live vLLM harness (run_benchmarks.py): columns include ``model``, ``ttft_seconds``,
-  ``tokens_per_second``.
-- Legacy simulated harness: columns include ``mode`` (baseline/cachegen) and
-  ``bandwidth_mbps``.
+Schemas:
+- Live vLLM (run_benchmarks.py): columns include ``model``, ``mode`` (e.g., baseline/cachegen),
+  ``ttft_seconds``, ``tokens_per_second``.
+- Legacy simulated (removed artifacts): columns include ``mode`` and ``bandwidth_mbps``.
 """
 from __future__ import annotations
 
@@ -17,16 +16,19 @@ import pandas as pd
 
 def load_results(path: Path) -> pd.DataFrame:
     data = json.loads(path.read_text())
-    return pd.DataFrame(data["runs"])
+    df = pd.DataFrame(data["runs"])
+    if "mode" not in df.columns:
+        df["mode"] = "single"
+    return df
 
 
 def plot_ttft_live(df: pd.DataFrame, out_dir: Path) -> None:
-    pivot = df.pivot(index="prompt_name", columns="model", values="ttft_seconds")
-    ax = pivot.plot(kind="bar", figsize=(7, 4))
+    pivot = df.pivot_table(index="prompt_name", columns=["model", "mode"], values="ttft_seconds")
+    ax = pivot.plot(kind="bar", figsize=(8, 4))
     ax.set_xlabel("Prompt")
     ax.set_ylabel("TTFT (s)")
-    ax.set_title("Time to First Token by Model")
-    ax.legend(title="Model", fontsize=8)
+    ax.set_title("Time to First Token by Model/Mode")
+    ax.legend(title="Model / Mode", fontsize=8)
     fig = ax.get_figure()
     fig.tight_layout()
     out = out_dir / "ttft_by_model.png"
@@ -35,12 +37,12 @@ def plot_ttft_live(df: pd.DataFrame, out_dir: Path) -> None:
 
 
 def plot_throughput_live(df: pd.DataFrame, out_dir: Path) -> None:
-    pivot = df.pivot(index="prompt_name", columns="model", values="tokens_per_second")
-    ax = pivot.plot(kind="bar", figsize=(7, 4))
+    pivot = df.pivot_table(index="prompt_name", columns=["model", "mode"], values="tokens_per_second")
+    ax = pivot.plot(kind="bar", figsize=(8, 4))
     ax.set_xlabel("Prompt")
     ax.set_ylabel("Tokens / second")
-    ax.set_title("Throughput by Model")
-    ax.legend(title="Model", fontsize=8)
+    ax.set_title("Throughput by Model/Mode")
+    ax.legend(title="Model / Mode", fontsize=8)
     fig = ax.get_figure()
     fig.tight_layout()
     out = out_dir / "throughput_by_model.png"
