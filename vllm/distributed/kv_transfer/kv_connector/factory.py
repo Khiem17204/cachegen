@@ -220,3 +220,9 @@ KVConnectorFactory.register_connector(
     "vllm.distributed.kv_transfer.kv_connector.v1.simple_cpu_offload_connector",
     "SimpleCPUOffloadConnector",
 )
+
+KVConnectorFactory.register_connector(
+    "CacheGenConnector",
+    "vllm.distributed.kv_transfer.kv_connector.v1.cachegen_connector",
+    "CacheGenConnector",
+)
