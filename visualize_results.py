@@ -1,7 +1,10 @@
 """Utility to visualize benchmark results.
 
-Reads benchmarks/results.json produced by run_benchmarks.py and writes simple
-PNG charts comparing baseline vs CacheGen across bandwidths and prompt sizes.
+Supports both schemas:
+- Live vLLM harness (run_benchmarks.py): columns include ``model``, ``ttft_seconds``,
+  ``tokens_per_second``.
+- Legacy simulated harness: columns include ``mode`` (baseline/cachegen) and
+  ``bandwidth_mbps``.
 """
 from __future__ import annotations
 
@@ -17,14 +20,42 @@ def load_results(path: Path) -> pd.DataFrame:
     return pd.DataFrame(data["runs"])
 
 
-def plot_latency(df: pd.DataFrame, out_dir: Path) -> None:
+def plot_ttft_live(df: pd.DataFrame, out_dir: Path) -> None:
+    pivot = df.pivot(index="prompt_name", columns="model", values="ttft_seconds")
+    ax = pivot.plot(kind="bar", figsize=(7, 4))
+    ax.set_xlabel("Prompt")
+    ax.set_ylabel("TTFT (s)")
+    ax.set_title("Time to First Token by Model")
+    ax.legend(title="Model", fontsize=8)
+    fig = ax.get_figure()
+    fig.tight_layout()
+    out = out_dir / "ttft_by_model.png"
+    fig.savefig(out)
+    plt.close(fig)
+
+
+def plot_throughput_live(df: pd.DataFrame, out_dir: Path) -> None:
+    pivot = df.pivot(index="prompt_name", columns="model", values="tokens_per_second")
+    ax = pivot.plot(kind="bar", figsize=(7, 4))
+    ax.set_xlabel("Prompt")
+    ax.set_ylabel("Tokens / second")
+    ax.set_title("Throughput by Model")
+    ax.legend(title="Model", fontsize=8)
+    fig = ax.get_figure()
+    fig.tight_layout()
+    out = out_dir / "throughput_by_model.png"
+    fig.savefig(out)
+    plt.close(fig)
+
+
+def plot_ttft_sim(df: pd.DataFrame, out_dir: Path) -> None:
     fig, ax = plt.subplots(figsize=(6, 4))
     for mode, group in df.groupby("mode"):
         group = group.sort_values("bandwidth_mbps")
         ax.plot(group["bandwidth_mbps"], group["ttft"], marker="o", label=mode)
     ax.set_xlabel("Bandwidth (Mbps)")
     ax.set_ylabel("TTFT (s)")
-    ax.set_title("TTFT vs Bandwidth")
+    ax.set_title("TTFT vs Bandwidth (simulated)")
     ax.legend()
     out = out_dir / "ttft_vs_bw.png"
     fig.tight_layout()
@@ -32,17 +63,15 @@ def plot_latency(df: pd.DataFrame, out_dir: Path) -> None:
     plt.close(fig)
 
 
-def plot_compression(df: pd.DataFrame, out_dir: Path) -> None:
-    comp = df[df["mode"] == "cachegen"][
-        ["prompt_name", "bandwidth_mbps", "compression_ratio"]
-    ]
+def plot_compression_sim(df: pd.DataFrame, out_dir: Path) -> None:
+    comp = df[df["mode"] == "cachegen"][["prompt_name", "bandwidth_mbps", "compression_ratio"]]
     comp = comp.sort_values(["prompt_name", "bandwidth_mbps"])
     fig, ax = plt.subplots(figsize=(6, 4))
     for prompt_name, group in comp.groupby("prompt_name"):
         ax.plot(group["bandwidth_mbps"], group["compression_ratio"], marker="s", label=prompt_name)
     ax.set_xlabel("Bandwidth (Mbps)")
     ax.set_ylabel("Compression Ratio (raw / compressed)")
-    ax.set_title("CacheGen Compression Ratio")
+    ax.set_title("CacheGen Compression Ratio (simulated)")
     ax.legend()
     out = out_dir / "compression_ratio.png"
     fig.tight_layout()
@@ -58,9 +87,16 @@ def main() -> None:
     out_dir = results_path.parent
     df = load_results(results_path)
 
-    plot_latency(df, out_dir)
-    plot_compression(df, out_dir)
-    print(f"Wrote plots to {out_dir}")
+    if "model" in df.columns:
+        plot_ttft_live(df, out_dir)
+        plot_throughput_live(df, out_dir)
+        print(f"Wrote live plots to {out_dir}")
+    elif "mode" in df.columns:
+        plot_ttft_sim(df, out_dir)
+        plot_compression_sim(df, out_dir)
+        print(f"Wrote simulated plots to {out_dir}")
+    else:
+        raise ValueError("Unrecognized results schema; expected columns including 'model' or 'mode'")
 
 
 if __name__ == "__main__":

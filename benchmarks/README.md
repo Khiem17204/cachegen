@@ -1,13 +1,17 @@
 # Benchmark Results (Stage 5)
 
-Artifacts produced by `run_benchmarks.py` on 2026-04-04 using the simulated vLLM shim and CacheGen encoder/decoder:
+## Live vLLM harness
+`run_benchmarks.py` now targets a real vLLM server/GPU and writes `benchmarks/results.json`.
 
-- `results.json`: Raw metrics for baseline vs CacheGen across prompt sizes and bandwidths.
-- `ttft_vs_bw.png`: Plot of TTFT against simulated bandwidth (baseline vs CacheGen).
-- `compression_ratio.png`: Plot of CacheGen compression ratio across prompts and bandwidths.
+Minimal Colab (A100) setup:
+```
+pip install "vllm>=0.4.0"  # pick the CUDA build matching the Colab image
+python run_benchmarks.py
+python visualize_results.py
+```
 
-Command used:
-```
-.venv/bin/python run_benchmarks.py
-.venv/bin/python visualize_results.py
-```
+Examples:
+- Default small + 8B models: `python run_benchmarks.py`
+- Custom: `python run_benchmarks.py --model meta-llama/Meta-Llama-3-8B-Instruct|8192|bfloat16`
+- 70B with 2×A100: `python run_benchmarks.py --model meta-llama/Llama-2-70b-chat-hf|4096|bfloat16 --tensor-parallel-size 2`
+- Try 4/8-bit to squeeze onto a single GPU: add `--quantization awq` (requires a compatible quantized checkpoint)
