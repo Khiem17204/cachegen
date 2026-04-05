@@ -10,10 +10,15 @@ Verify that KV cache compression yields a **3–4x compression ratio**, **reduce
 
 ## Implementation Approach
 
-To minimize engineering bottlenecks with memory management, this reproduction utilizes a **Two-Phase Strategy**:
+This repo now uses a true end-to-end path in vLLM:
 
-* **Phase A: HuggingFace Offline (Stages 1–3):** Extract contiguous KV tensors using standard HuggingFace `transformers`. This allows agents to quickly build datasets, implement core algorithms (quantization, delta encoding, `zstd`), and verify compression ratios in an isolated, static environment.
-* **Phase B: vLLM Online (Stages 4–5):** Once encoder/decoder logic is proven, port the compression algorithms directly into vLLM's PagedAttention block manager. This enables accurate testing of streaming latency and Time to First Token (TTFT) in a real-world serving scenario.
+* **Phase A (offline):** KV extraction + CacheGen encoder/decoder validation.
+* **Phase B (online):** source-integrated vLLM KV connector with a runtime toggle:
+  * `baseline`: raw transfer (`cachegen_enabled=false`)
+  * `cachegen`: compressed transfer (`cachegen_enabled=true`)
+
+The benchmark harness measures TTFT/end-to-end/throughput from real generation
+and transfer stats from `RequestOutput.kv_transfer_params`.
 
 ---
 
@@ -41,35 +46,25 @@ To minimize engineering bottlenecks with memory management, this reproduction ut
 
 ---
 
-## Phase B Objectives (vLLM)
+## Running End-to-End Benchmarks
 
-### Stage 4: vLLM Integration & Streaming Simulation
-
-* **Objective:** Integrate the proven Phase A encoder/decoder directly into vLLM's cache engine.
-* **Sub-objectives:**
-  * Map the chunking logic to vLLM's existing PagedAttention physical blocks.
-  * Simulate network bandwidth constraints (e.g., 100 MB/s to 1 GB/s) to stream compressed blocks instead of full raw tensors.
-
-
-
-### Stage 5: Evaluation & Baselines
-
-* **Objective:** Establish non-compressed baselines in vLLM and run comparative experiments.
-* **Metrics to Capture:**
-* *Compression Ratio:* Original size vs. compressed size.
-* *Load/Decode Latency:* Ensure decode overhead (`Transfer Time + Decode Time`) is faster than raw transfer time.
-* *Time to First Token (TTFT):* Measure end-to-end load and generation speed in the vLLM server.
-* *Model Quality:* Verify output accuracy using perplexity, BLEU, and ROUGE on tasks like QA and summarization.
-
-## Running Stage 5 Benchmarks
-
-1. Install deps: `pip install -r requirements.txt` (adds matplotlib/pandas for plotting).
-2. Run the harness: `python run_benchmarks.py` → writes `benchmarks/results.json` with compression, latency, and TTFT for baseline vs CacheGen across prompt sizes and bandwidths.
-3. Visualize: `python visualize_results.py` → saves `benchmarks/ttft_vs_bw.png` and `benchmarks/compression_ratio.png`.
-4. Quality check: included in `run_benchmarks.py`—BLEU/ROUGE/perplexity deltas are reported in the JSON under `quality`.
+1. Install deps:
+   * `pip install -r requirements.txt`
+   * `git submodule update --init --recursive third_party/vllm`
+   * `pip install -e ./third_party/vllm`
+2. Run the harness:
+   * `python run_benchmarks.py --modes baseline cachegen --bandwidth-mbps 100 500 1000`
+3. Visualize:
+   * `python visualize_results.py`
+4. Outputs:
+   * `benchmarks/results.json`
+   * `benchmarks/ttft_by_model_mode.png`
+   * `benchmarks/throughput_by_model_mode.png`
+   * `benchmarks/compression_ratio_by_mode.png`
+   * `benchmarks/network_time_by_mode_bandwidth.png`
 
 
 ## Project Architecture & Scope
 
-* **Modular Structure:** Code is divided cleanly into `kv_extraction_hf/`, `encoder/`, `decoder/`, `vllm_integration/`, and `experiments/`.
+* **Modular Structure:** Core code lives in `kv_extraction_hf/`, `encoder/`, `decoder/`, with vLLM source integration under `third_party/vllm/`.
 * **MVP Simplification:** Prioritize basic quantization and `zstd` compression over complex custom entropy coding for the initial pass.

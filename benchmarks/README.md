@@ -105,7 +105,7 @@ bandwidth decreases.
 ## Notes
 
 - `--bandwidth-mbps` applies **real throttling delay** in connector load path, so
-  TTFT/end-to-end include simulated link effects.
+  TTFT/end-to-end include link-throttling effects in measured wall-clock time.
 - First implementation targets standard attention KV layouts used by
   OPT/Mistral/Llama-class models.
 
