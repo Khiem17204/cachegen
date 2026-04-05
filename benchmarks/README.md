@@ -5,13 +5,17 @@
 
 Minimal Colab (A100) setup:
 ```
-pip install "vllm>=0.4.0"  # pick the CUDA build matching the Colab image
-python run_benchmarks.py
+pip install "vllm>=0.4.0" --extra-index-url https://download.pytorch.org/whl/cu121
+pip install -r requirements.txt
+python run_benchmarks.py --model "facebook/opt-125m|2048|float16" --model "mistralai/Mistral-7B-Instruct-v0.3|8192|bfloat16" --max-tokens 64
 python visualize_results.py
 ```
 
-Examples:
-- Default small + 8B models: `python run_benchmarks.py`
-- Custom: `python run_benchmarks.py --model meta-llama/Meta-Llama-3-8B-Instruct|8192|bfloat16`
-- 70B with 2×A100: `python run_benchmarks.py --model meta-llama/Llama-2-70b-chat-hf|4096|bfloat16 --tensor-parallel-size 2`
-- Try 4/8-bit to squeeze onto a single GPU: add `--quantization awq` (requires a compatible quantized checkpoint)
+Latest Live vLLM Benchmark (A100, Colab)
+
+| Model | Avg TTFT (ms) | Avg Throughput (tok/s) |
+| --- | ---: | ---: |
+| facebook/opt-125m | 277.0 | 560.9 |
+| mistralai/Mistral-7B-Instruct-v0.3 | 25.4 | 83.3 |
+
+Prompts: short/medium/long suite from Stage 5; max_tokens=64; sequential requests.
