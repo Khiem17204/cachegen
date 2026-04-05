@@ -110,8 +110,8 @@ def plot_network_time(df: "pd.DataFrame", out_dir: Path) -> None:
         )
 
     ax.set_xlabel("Bandwidth (Mbps)")
-    ax.set_ylabel("Network Time (s)")
-    ax.set_title("Average Simulated Network Time by Bandwidth/Mode")
+    ax.set_ylabel("Transfer Delay (s)")
+    ax.set_title("Average Network Transfer Delay by Bandwidth/Mode")
     ax.legend(fontsize=7)
     fig.tight_layout()
     fig.savefig(out_dir / "network_time_by_mode_bandwidth.png")
