@@ -1,0 +1,85 @@
+{
+  "meta": {
+    "model": "facebook/opt-1.3b",
+    "environment": "Google Colab Pro A100 40GB",
+    "collection_mode": "sequential single-server runs",
+    "notes": [
+      "Baseline and CacheGen were measured one after the other on the same GPU host to avoid multi-server VRAM contention.",
+      "OPT-1.3B is a completion-style model, so measurements used /v1/completions rather than /v1/chat/completions."
+    ]
+  },
+  "runs": [
+    {
+      "mode": "baseline_live",
+      "model": "facebook/opt-1.3b",
+      "prompt_name": "short",
+      "latency_s": 0.48542787599990334,
+      "prompt_tokens": 8,
+      "completion_tokens": 16,
+      "total_tokens": 24,
+      "output_preview": "\nParis.\nI thought it was Paris, but I was wrong."
+    },
+    {
+      "mode": "baseline_live",
+      "model": "facebook/opt-1.3b",
+      "prompt_name": "medium",
+      "latency_s": 0.2745706959999552,
+      "prompt_tokens": 26,
+      "completion_tokens": 64,
+      "total_tokens": 90,
+      "output_preview": "\n\nThe first thing to understand is that the term \"self-attention\" is not a new concept. It is a term that has been used in the literature for a long time. The t"
+    },
+    {
+      "mode": "baseline_live",
+      "model": "facebook/opt-1.3b",
+      "prompt_name": "long",
+      "latency_s": 0.2646642149998115,
+      "prompt_tokens": 28,
+      "completion_tokens": 64,
+      "total_tokens": 92,
+      "output_preview": "\n\nThis course is designed to provide a foundation for the development of reinforcement learning algorithms. The course will cover the following topics:\n\nThe bas"
+    },
+    {
+      "mode": "cachegen_live",
+      "model": "facebook/opt-1.3b",
+      "prompt_name": "short",
+      "latency_s": 0.6588690389999101,
+      "prompt_tokens": 8,
+      "completion_tokens": 16,
+      "total_tokens": 24,
+      "output_preview": "\nParis.\nI thought it was Paris, but I was wrong."
+    },
+    {
+      "mode": "cachegen_live",
+      "model": "facebook/opt-1.3b",
+      "prompt_name": "medium",
+      "latency_s": 0.27919635700027357,
+      "prompt_tokens": 26,
+      "completion_tokens": 64,
+      "total_tokens": 90,
+      "output_preview": "\n\nThe first thing to understand is that the term \"self-attention\" is not a new concept. It is a term that has been used in the literature for a long time. The t"
+    },
+    {
+      "mode": "cachegen_live",
+      "model": "facebook/opt-1.3b",
+      "prompt_name": "long",
+      "latency_s": 0.2749324119999983,
+      "prompt_tokens": 28,
+      "completion_tokens": 64,
+      "total_tokens": 92,
+      "output_preview": "\n\nThis course is designed to provide a foundation for the development of reinforcement learning algorithms. The course will cover the following topics:\n\nThe bas"
+    }
+  ],
+  "summary": {
+    "avg_baseline_latency_s": 0.34155426233322335,
+    "avg_cachegen_latency_s": 0.4043326026667273,
+    "avg_latency_delta_s": 0.06277834033350392,
+    "avg_latency_delta_pct": 18.380930020862298,
+    "prompt_level_delta_s": {
+      "short": 0.17344116300000675,
+      "medium": 0.00462566100031835,
+      "long": 0.010268197000186794
+    },
+    "quality_observation": "Output previews and token counts matched across baseline and CacheGen for all three prompts in this run."
+  }
+}

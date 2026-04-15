@@ -63,6 +63,22 @@ and transfer stats from `RequestOutput.kv_transfer_params`.
    * `benchmarks/compression_ratio_by_mode.png`
    * `benchmarks/network_time_by_mode_bandwidth.png`
 
+### Latest benchmark snapshot (live vLLM endpoint, `facebook/opt-1.3b`)
+
+- Artifacts: see `benchmarks/live_results_opt13b.json`, `benchmarks/live_results_opt13b.md`, and `benchmarks/live_opt13b_latency.png`.
+- Environment: Google Colab Pro, NVIDIA A100 40GB, sequential single-server runs to avoid VRAM contention.
+- Real endpoint latency on three prompts:
+  - Baseline average: `0.342s`
+  - CacheGen average: `0.404s`
+  - Delta: CacheGen `+0.063s` on average (`+18.4%`)
+- Prompt-level behavior:
+  - `short`: `0.485s` → `0.659s`
+  - `medium`: `0.275s` → `0.279s`
+  - `long`: `0.265s` → `0.275s`
+- Findings:
+  - On this small model, CacheGen overhead is negligible for medium/long prompts but noticeable on the shortest prompt.
+  - Output previews and token counts matched across baseline and CacheGen for all three prompts in this run, so no visible quality drift appeared in the sampled outputs.
+
 
 ## Project Architecture & Scope
 
