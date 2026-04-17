@@ -8,7 +8,7 @@
 4. Install the vendored vLLM package with `pip install -e ./third_party/vllm`.
 5. Read this file, then read `README.md`.
 6. Run the baseline tests:
-   `pytest tests/test_encoder.py tests/test_decoder.py tests/test_vllm_integration.py -q`
+   `pytest tests/test_encoder.py tests/test_decoder.py tests/test_run_benchmarks.py tests/test_visualize_results.py -q`
 7. If you need the HuggingFace extractor, run:
    `pytest tests/test_extractor.py -q`
 
@@ -17,7 +17,6 @@
 - `kv_extraction_hf/`: extracts contiguous KV tensors from HuggingFace causal language models.
 - `encoder/`: chunks KV tensors, quantizes to `int8`, delta-encodes, and compresses with `zstandard`.
 - `decoder/`: reverses the serialized pipeline and reconstructs approximate tensors from encoded chunks.
-- `vllm_integration/`: a legacy shim module for local experiments with synthetic block transfer.
 - `third_party/vllm/`: vendored vLLM source used by the current end-to-end benchmark path.
 - `run_benchmarks.py`: a true end-to-end benchmark harness that runs baseline vs CacheGen transfer through vendored vLLM.
 - `visualize_results.py`: plotting utility for benchmark outputs written to `benchmarks/results.json`.
@@ -38,7 +37,6 @@ Real today:
 
 Limited today:
 
-- `vllm_integration/` is still a shim module and is not the source of truth for the end-to-end benchmark path.
 - The current benchmark flow does not generate BLEU, ROUGE, perplexity, or `quality_deltas.png`.
 - The repo should not claim a verified reproduction of the paper's full headline results unless those claims are backed by current code and reproducible runs.
 
@@ -68,7 +66,7 @@ Treat those `opt-1.3b` files as archived reference material rather than outputs 
 ## Validated Commands
 
 - Core tests:
-  `pytest tests/test_encoder.py tests/test_decoder.py tests/test_vllm_integration.py -q`
+  `pytest tests/test_encoder.py tests/test_decoder.py tests/test_run_benchmarks.py tests/test_visualize_results.py -q`
 - Extractor test:
   `pytest tests/test_extractor.py -q`
 - Generate end-to-end benchmark data:

@@ -23,4 +23,4 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["encoder*", "decoder*", "kv_extraction_hf*", "vllm_integration*"]
+include = ["encoder*", "decoder*", "kv_extraction_hf*"]
