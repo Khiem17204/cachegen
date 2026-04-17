@@ -2,7 +2,7 @@
 
 ## Objective
 
-Reconstruct original FP16 KV cache tensors from `EncodedChunk` bitstreams by applying the exact inverse of the Stage 2 encoder pipeline (zstd decompress → delta-decode → dequantize → dechunk) in the CacheGen system.
+Reconstruct KV cache tensors from `EncodedChunk` payloads by inverting the serialized pipeline stages (zstd decompress → delta-decode → dequantize → dechunk). The serialization steps are inverted exactly, but the overall round trip is still lossy because the encoder quantizes values before compression.
 
 ## API Reference
 
@@ -27,7 +27,7 @@ class CacheGenDecoder:
 
 ```python
 import torch
-from encoder import CacheGenEncoder
+from encoder import CacheGenEncoder, EncodedChunk
 from decoder import CacheGenDecoder
 
 kv_cache = torch.randn(1, 2, 4, 128, 64, dtype=torch.float16)
@@ -38,8 +38,15 @@ reconstructed = CacheGenDecoder().decode(encoded)
 mse = torch.nn.functional.mse_loss(
     kv_cache.float(), reconstructed.float()
 )
-print(f"Round-trip MSE: {mse.item():.6f}")  # typical ~0.005
+assert isinstance(encoded[0], EncodedChunk)
+print(f"Round-trip MSE: {mse.item():.6f}")
 ```
+
+`CacheGenDecoder.decode()` expects the full `EncodedChunk` objects, including `scales`. Those scale tensors are required sidecar data, so any size or transfer accounting should include them in addition to `chunk.data`.
+
+## Source of Truth
+
+If this README and runtime behavior diverge, treat `decoder/decoder.py` and `tests/test_decoder.py` as authoritative.
 
 ## Testing
 

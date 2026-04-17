@@ -2,7 +2,7 @@
 
 ## Objective
 
-Extract raw FP16 KV cache tensors from any HuggingFace causal language model in a single prefill pass, producing a standardised 5-D tensor ready for downstream CacheGen compression.
+Extract KV cache tensors from HuggingFace causal language models in a single prefill pass, producing a standardised 5-D tensor ready for downstream CacheGen compression.
 
 ## API Reference
 
@@ -24,6 +24,8 @@ class KVCacheExtractor:
 |---|---|
 | `extract(prompt)` | `torch.Tensor` of shape `[num_layers, 2, num_kv_heads, seq_len, head_dim]`, dtype `float16` |
 
+This module depends on `transformers`. Loading a model with `from_pretrained(...)` may require network access the first time a model is downloaded into the local HuggingFace cache.
+
 ## Usage Example
 
 ```python
@@ -39,6 +41,12 @@ kv_cache = extractor.extract("The quick brown fox")
 print(kv_cache.shape)   # [12, 2, 12, 5, 64]
 print(kv_cache.dtype)   # torch.float16
 ```
+
+The extractor returns a contiguous CPU tensor in the standardized `[num_layers, 2, num_kv_heads, seq_len, head_dim]` layout after the forward pass completes.
+
+## Source of Truth
+
+If this README and runtime behavior diverge, treat `kv_extraction_hf/extractor.py` and `tests/test_extractor.py` as authoritative.
 
 ## Testing
 
