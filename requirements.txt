@@ -1,9 +1,9 @@
 torch
-transformers
-pytest
 zstandard
+transformers
 matplotlib
 pandas
 requests
 sacrebleu
 rouge-score
+pytest
