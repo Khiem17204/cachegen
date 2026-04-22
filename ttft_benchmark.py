@@ -70,7 +70,8 @@ MODE_CONFIGS: dict[str, TransferModeConfig] = {
     "quantized_fp8": TransferModeConfig(
         name="quantized_fp8",
         cachegen_enabled=False,
-        kv_cache_dtype="fp8",
+        # update to auto as A100 mismatches with fp8
+        kv_cache_dtype="auto",
         uses_kv_transfer=False,
     ),
     "cachegen": TransferModeConfig(
