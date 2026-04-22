@@ -2,7 +2,7 @@
 
 This directory contains two categories of files:
 
-- current scripted outputs from the end-to-end vLLM benchmark workflow
+- current scripted outputs from the TTFT-focused vLLM benchmark workflow
 - archived/manual artifacts from a separate `facebook/opt-1.3b` live run
 
 ## Current Benchmark Workflow
@@ -13,42 +13,60 @@ The current benchmark path is:
 pip install -r requirements.txt
 git submodule update --init --recursive third_party/vllm
 pip install -e ./third_party/vllm
-python run_benchmarks.py --modes baseline cachegen --bandwidth-mbps 100 500 1000
+python run_benchmarks.py \
+  --modes quantized_fp8 cachegen \
+  --bandwidth-mbps 3000 \
+  --prompt-lengths 2048 4096 \
+  --repeats 5
 python visualize_results.py
 ```
 
-`run_benchmarks.py` benchmarks two transfer modes through the vendored vLLM connector:
+`run_benchmarks.py` benchmarks the paper-facing transfer comparator through the vendored vLLM connector:
 
-- `baseline`: raw KV transfer with `cachegen_enabled=false`
-- `cachegen`: compressed KV transfer with `cachegen_enabled=true`
+- `quantized_fp8`: raw transfer with `cachegen_enabled=false`, `kv_cache_dtype="fp8"`
+- `cachegen`: CacheGen transfer with `cachegen_enabled=true`, `kv_cache_dtype="auto"`
 
-For each prompt, the script runs:
+For each `(model, mode, bandwidth)` combination, the script:
 
-1. a seed pass that populates external KV storage
-2. a measured pass that reloads KV and records transfer-aware metrics
+1. warms the engine once
+2. builds deterministic tokenizer-exact prompts from `prompt_corpus.txt`
+3. clears the cache store for every seed/measured prompt pair
+4. runs a seed pass that populates external KV storage
+5. runs a measured pass that reloads KV and records transfer-aware metrics
 
 ## Current Scripted Outputs
 
 The current scripts produce:
 
 - `results.json`
-- `ttft_by_model_mode.png`
-- `throughput_by_model_mode.png`
-- `compression_ratio_by_mode.png`
-- `network_time_by_mode_bandwidth.png`
+- `ttft_comparison_3gbps.png`
+- `transport_breakdown_3gbps.png`
 
 `results.json` includes the benchmark configuration plus per-run fields such as:
 
+- `prompt_length_tokens_requested`
+- `repetition`
 - `ttft_seconds`
 - `end_to_end_seconds`
 - `tokens_per_second`
-- `raw_bytes`
-- `compressed_bytes`
-- `compression_ratio`
+- `raw_tensor_bytes`
+- `transmitted_bytes`
+- `transport_ratio`
 - `network_time`
 - `decode_time`
+- `cachegen_enabled`
+- `cachegen_applied`
+- `raw_fallback_layers`
+- `kv_cache_dtype`
 - `bandwidth_mbps`
 - `cached_tokens`
+
+The report schema also includes:
+
+- `meta`
+- `config`
+- `summaries`
+- `claim_check`
 
 ## Quality Metrics Caveat
 

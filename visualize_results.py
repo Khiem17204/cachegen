@@ -1,4 +1,4 @@
-"""Utility to visualize benchmark results from benchmarks/results.json."""
+"""Utilities to visualize TTFT benchmark results from benchmarks/results.json."""
 
 from __future__ import annotations
 
@@ -29,97 +29,159 @@ def load_results(path: Path) -> "pd.DataFrame":
     if df.empty:
         raise ValueError("results.json contains no runs")
 
-    if "mode" not in df.columns:
-        df["mode"] = "single"
-    if "bandwidth_mbps" not in df.columns:
-        df["bandwidth_mbps"] = 1000.0
-
     return df
 
 
-def _plot_grouped_bar(
+def _mode_order(df: "pd.DataFrame") -> list[str]:
+    return list(dict.fromkeys(df["mode"].tolist()))
+
+
+def _label_tuples(df: "pd.DataFrame") -> list[tuple[str, int]]:
+    rows = (
+        df[["model", "prompt_length_tokens_requested"]]
+        .drop_duplicates()
+        .sort_values(["model", "prompt_length_tokens_requested"])
+    )
+    return [
+        (str(row["model"]), int(row["prompt_length_tokens_requested"]))
+        for _, row in rows.iterrows()
+    ]
+
+
+def _label_strings(labels: list[tuple[str, int]]) -> list[str]:
+    return [f"{model}\n{prompt_length} tokens" for model, prompt_length in labels]
+
+
+def _median_rows(
     df: "pd.DataFrame",
-    value_col: str,
-    ylabel: str,
-    title: str,
-    out_path: Path,
+    *,
+    bandwidth_mbps: float,
+    columns: list[str],
+) -> "pd.DataFrame":
+    filtered = df[df["bandwidth_mbps"] == bandwidth_mbps]
+    if filtered.empty:
+        raise ValueError(f"No runs found for bandwidth {bandwidth_mbps:g} Mbps")
+
+    return (
+        filtered.groupby(
+            ["model", "prompt_length_tokens_requested", "mode"],
+            as_index=False,
+        )[columns]
+        .median()
+        .sort_values(["model", "prompt_length_tokens_requested", "mode"])
+    )
+
+
+def plot_ttft(
+    df: "pd.DataFrame",
+    out_dir: Path,
+    *,
+    bandwidth_mbps: float = 3000.0,
 ) -> None:
     plt = _plt()
-    pivot = df.pivot_table(index="model", columns="mode", values=value_col, aggfunc="mean")
-    ax = pivot.plot(kind="bar", figsize=(9, 4.5))
-    ax.set_xlabel("Model")
-    ax.set_ylabel(ylabel)
-    ax.set_title(title)
+    agg = _median_rows(df, bandwidth_mbps=bandwidth_mbps, columns=["ttft_seconds"])
+    labels = _label_tuples(agg)
+    label_strings = _label_strings(labels)
+    modes = _mode_order(agg)
+    width = 0.8 / max(len(modes), 1)
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    baseline_positions = list(range(len(labels)))
+    for mode_index, mode in enumerate(modes):
+        rows = agg[agg["mode"] == mode]
+        offset = (mode_index - (len(modes) - 1) / 2.0) * width
+        x_positions = [position + offset for position in baseline_positions]
+        values: list[float] = []
+        for label in labels:
+            match = rows[
+                (rows["model"] == label[0])
+                & (rows["prompt_length_tokens_requested"] == label[1])
+            ]
+            values.append(float(match["ttft_seconds"].iloc[0]) if not match.empty else 0.0)
+        ax.bar(x_positions, values, width=width, label=mode)
+
+    ax.set_xticks(baseline_positions, label_strings)
+    ax.set_xlabel("Model / Prompt Length")
+    ax.set_ylabel("Median TTFT (s)")
+    ax.set_title(f"TTFT Comparison at {bandwidth_mbps:g} Mbps")
     ax.legend(title="Mode", fontsize=8)
-    fig = ax.get_figure()
     fig.tight_layout()
-    fig.savefig(out_path)
+    fig.savefig(out_dir / "ttft_comparison_3gbps.png")
     plt.close(fig)
 
 
-def plot_ttft(df: "pd.DataFrame", out_dir: Path) -> None:
-    _plot_grouped_bar(
-        df=df,
-        value_col="ttft_seconds",
-        ylabel="TTFT (s)",
-        title="Average TTFT by Model/Mode",
-        out_path=out_dir / "ttft_by_model_mode.png",
-    )
-
-
-def plot_throughput(df: "pd.DataFrame", out_dir: Path) -> None:
-    _plot_grouped_bar(
-        df=df,
-        value_col="tokens_per_second",
-        ylabel="Tokens / second",
-        title="Average Throughput by Model/Mode",
-        out_path=out_dir / "throughput_by_model_mode.png",
-    )
-
-
-def plot_compression_ratio(df: "pd.DataFrame", out_dir: Path) -> None:
-    if "compression_ratio" not in df.columns:
-        return
-    _plot_grouped_bar(
-        df=df,
-        value_col="compression_ratio",
-        ylabel="Compression Ratio (raw / compressed)",
-        title="Average Compression Ratio by Model/Mode",
-        out_path=out_dir / "compression_ratio_by_mode.png",
-    )
-
-
-def plot_network_time(df: "pd.DataFrame", out_dir: Path) -> None:
+def plot_transport_breakdown(
+    df: "pd.DataFrame",
+    out_dir: Path,
+    *,
+    bandwidth_mbps: float = 3000.0,
+) -> None:
     plt = _plt()
-    if "network_time" not in df.columns:
-        return
-
-    agg = (
-        df.groupby(["bandwidth_mbps", "model", "mode"], as_index=False)["network_time"]
-        .mean()
-        .sort_values(["model", "mode", "bandwidth_mbps"])
+    agg = _median_rows(
+        df,
+        bandwidth_mbps=bandwidth_mbps,
+        columns=["transmitted_bytes", "network_time", "decode_time"],
     )
+    labels = _label_tuples(agg)
+    label_strings = _label_strings(labels)
+    modes = _mode_order(agg)
+    baseline_positions = list(range(len(labels)))
+    width = 0.8 / max(len(modes), 1)
 
-    fig, ax = plt.subplots(figsize=(9, 4.5))
-    for (model, mode), group in agg.groupby(["model", "mode"]):
-        ax.plot(
-            group["bandwidth_mbps"],
-            group["network_time"],
-            marker="o",
-            label=f"{model} | {mode}",
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    ax_bytes, ax_time = axes
+
+    for mode_index, mode in enumerate(modes):
+        rows = agg[agg["mode"] == mode]
+        offset = (mode_index - (len(modes) - 1) / 2.0) * width
+        x_positions = [position + offset for position in baseline_positions]
+        transmitted_values: list[float] = []
+        network_values: list[float] = []
+        decode_values: list[float] = []
+
+        for label in labels:
+            match = rows[
+                (rows["model"] == label[0])
+                & (rows["prompt_length_tokens_requested"] == label[1])
+            ]
+            if match.empty:
+                transmitted_values.append(0.0)
+                network_values.append(0.0)
+                decode_values.append(0.0)
+                continue
+            transmitted_values.append(float(match["transmitted_bytes"].iloc[0]))
+            network_values.append(float(match["network_time"].iloc[0]))
+            decode_values.append(float(match["decode_time"].iloc[0]))
+
+        ax_bytes.bar(x_positions, transmitted_values, width=width, label=mode)
+        ax_time.bar(x_positions, network_values, width=width, label=f"{mode} network")
+        ax_time.bar(
+            x_positions,
+            decode_values,
+            width=width,
+            bottom=network_values,
+            label=f"{mode} decode",
         )
 
-    ax.set_xlabel("Bandwidth (Mbps)")
-    ax.set_ylabel("Transfer Delay (s)")
-    ax.set_title("Average Network Transfer Delay by Bandwidth/Mode")
-    ax.legend(fontsize=7)
+    ax_bytes.set_xticks(baseline_positions, label_strings)
+    ax_bytes.set_xlabel("Model / Prompt Length")
+    ax_bytes.set_ylabel("Median Transmitted Bytes")
+    ax_bytes.set_title(f"Transfer Byte Breakdown at {bandwidth_mbps:g} Mbps")
+    ax_bytes.legend(title="Mode", fontsize=8)
+
+    ax_time.set_xticks(baseline_positions, label_strings)
+    ax_time.set_xlabel("Model / Prompt Length")
+    ax_time.set_ylabel("Median Time (s)")
+    ax_time.set_title(f"Network vs Decode Time at {bandwidth_mbps:g} Mbps")
+    ax_time.legend(fontsize=8)
+
     fig.tight_layout()
-    fig.savefig(out_dir / "network_time_by_mode_bandwidth.png")
+    fig.savefig(out_dir / "transport_breakdown_3gbps.png")
     plt.close(fig)
 
 
-def main() -> None:
-    results_path = Path("benchmarks/results.json")
+def main(results_path: Path | None = None) -> None:
+    results_path = Path("benchmarks/results.json") if results_path is None else results_path
     if not results_path.exists():
         raise FileNotFoundError("Run run_benchmarks.py first to produce benchmarks/results.json")
 
@@ -127,9 +189,7 @@ def main() -> None:
     df = load_results(results_path)
 
     plot_ttft(df, out_dir)
-    plot_throughput(df, out_dir)
-    plot_compression_ratio(df, out_dir)
-    plot_network_time(df, out_dir)
+    plot_transport_breakdown(df, out_dir)
     print(f"Wrote plots to {out_dir}")
 
 

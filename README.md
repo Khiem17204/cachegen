@@ -4,7 +4,7 @@ This repository contains a CacheGen-style prototype with three main pieces:
 
 - HuggingFace KV extraction in `kv_extraction_hf/`
 - local encoder/decoder modules in `encoder/` and `decoder/`
-- a true end-to-end benchmark path that uses a vendored vLLM integration under `third_party/vllm/`
+- a Colab-ready TTFT benchmark path that uses a vendored vLLM integration under `third_party/vllm/`
 
 The top-level docs in this repo are intended to describe the code as it exists today, not just the original paper-reproduction plan.
 
@@ -14,8 +14,10 @@ The repo currently includes:
 
 - offline KV extraction for HuggingFace causal language models
 - an `int8`-based serialized compression pipeline with required scale sidecar data
-- a true end-to-end benchmark harness in `run_benchmarks.py` that exercises a vendored vLLM `CacheGenConnector`
-- a plotting script in `visualize_results.py` that renders summaries from `benchmarks/results.json`
+- a shared TTFT benchmark core in `ttft_benchmark.py` used by both the CLI and the Colab notebook
+- a `run_benchmarks.py` CLI that compares `quantized_fp8` against `cachegen` through a vendored vLLM `CacheGenConnector`
+- a plotting script in `visualize_results.py` that renders the TTFT and transport plots from `benchmarks/results.json`
+- a first-class Colab notebook in `notebooks/ttft_repro_colab.ipynb`
 
 The repo does not currently include:
 
@@ -28,16 +30,20 @@ The repo does not currently include:
 
 - You can extract KV tensors with `kv_extraction_hf/`.
 - You can encode and decode KV tensors with the local encoder/decoder modules.
-- You can run true end-to-end baseline vs CacheGen transfer benchmarks through vendored vLLM with `run_benchmarks.py`.
-- You can render the current plot set from `benchmarks/results.json` with `visualize_results.py`.
+- You can run a true end-to-end `quantized_fp8` vs `cachegen` TTFT benchmark through vendored vLLM with `run_benchmarks.py`.
+- You can render the current TTFT-focused plot set from `benchmarks/results.json` with `visualize_results.py`.
+- You can execute the same benchmark code path on Colab with `notebooks/ttft_repro_colab.ipynb`.
 
 ## What Is Simulated vs Real
 
 Real today:
 
 - `run_benchmarks.py` drives real vLLM generation through `AsyncLLMEngine`.
-- The benchmark path toggles transfer behavior with `cachegen_enabled=false` and `cachegen_enabled=true`.
+- The benchmark path compares:
+  - `quantized_fp8`: `cachegen_enabled=false`, `kv_cache_dtype="fp8"`
+  - `cachegen`: `cachegen_enabled=true`, `kv_cache_dtype="auto"`
 - The benchmark records transfer stats from `RequestOutput.kv_transfer_params`.
+- The connector accounts for exact serialized bytes written to disk and surfaces `raw_tensor_bytes`, `transmitted_bytes`, `transport_ratio`, `network_time`, `decode_time`, `cachegen_applied`, `raw_fallback_layers`, and `kv_cache_dtype`.
 - `--bandwidth-mbps` is used as real throttling in the connector load path.
 
 Still limited today:
@@ -63,10 +69,14 @@ git submodule update --init --recursive third_party/vllm
 pip install -e ./third_party/vllm
 ```
 
-Run the end-to-end benchmark harness:
+Run the primary TTFT benchmark harness:
 
 ```bash
-python run_benchmarks.py --modes baseline cachegen --bandwidth-mbps 100 500 1000
+python run_benchmarks.py \
+  --modes quantized_fp8 cachegen \
+  --bandwidth-mbps 3000 \
+  --prompt-lengths 2048 4096 \
+  --repeats 5
 ```
 
 Current scripted output:
@@ -81,15 +91,16 @@ python visualize_results.py
 
 Current scripted plot outputs:
 
-- `benchmarks/ttft_by_model_mode.png`
-- `benchmarks/throughput_by_model_mode.png`
-- `benchmarks/compression_ratio_by_mode.png`
-- `benchmarks/network_time_by_mode_bandwidth.png`
+- `benchmarks/ttft_comparison_3gbps.png`
+- `benchmarks/transport_breakdown_3gbps.png`
 
 ## Benchmark Notes
 
-- If no `--model` flags are provided, `run_benchmarks.py` defaults to `facebook/opt-125m|2048|float16` and `mistralai/Mistral-7B-Instruct-v0.3|8192|bfloat16`.
-- The harness records `ttft_seconds`, `end_to_end_seconds`, `tokens_per_second`, `raw_bytes`, `compressed_bytes`, `compression_ratio`, `network_time`, `decode_time`, `bandwidth_mbps`, and `cached_tokens`.
+- If no `--model` flags are provided, `run_benchmarks.py` defaults to `mistralai/Mistral-7B-Instruct-v0.3|8192|bfloat16`.
+- The CLI defaults to `--modes quantized_fp8 cachegen --bandwidth-mbps 3000 --prompt-lengths 2048 4096 --repeats 5 --max-tokens 16`.
+- Prompt construction is tokenizer-exact and deterministic. The benchmark builds two prompt instances per requested prompt length from `benchmarks/prompt_corpus.txt`.
+- The report schema is TTFT-focused and writes `meta`, `config`, `runs`, `summaries`, and `claim_check`.
+- `claim_check` explicitly reports whether the observed 3 Gbps speedup is below, within, or above the paper's `3.2-3.7x` range.
 - `benchmarks/quality_deltas.png` is not a current pipeline output and should not be referenced as one.
 
 ## Repository Boundaries

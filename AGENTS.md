@@ -7,8 +7,8 @@
 3. Sync vendored vLLM with `git submodule update --init --recursive third_party/vllm`.
 4. Install the vendored vLLM package with `pip install -e ./third_party/vllm`.
 5. Read this file, then read `README.md`.
-6. Run the baseline tests:
-   `pytest tests/test_encoder.py tests/test_decoder.py tests/test_run_benchmarks.py tests/test_visualize_results.py -q`
+6. Run the core tests:
+   `pytest tests/test_encoder.py tests/test_decoder.py tests/test_run_benchmarks.py tests/test_connector_payload_utils.py tests/test_visualize_results.py -q`
 7. If you need the HuggingFace extractor, run:
    `pytest tests/test_extractor.py -q`
 
@@ -18,7 +18,8 @@
 - `encoder/`: chunks KV tensors, quantizes to `int8`, delta-encodes, and compresses with `zstandard`.
 - `decoder/`: reverses the serialized pipeline and reconstructs approximate tensors from encoded chunks.
 - `third_party/vllm/`: vendored vLLM source used by the current end-to-end benchmark path.
-- `run_benchmarks.py`: a true end-to-end benchmark harness that runs baseline vs CacheGen transfer through vendored vLLM.
+- `ttft_benchmark.py`: shared benchmark core used by the CLI and Colab notebook.
+- `run_benchmarks.py`: a TTFT benchmark CLI that runs `quantized_fp8` vs `cachegen` transfer through vendored vLLM.
 - `visualize_results.py`: plotting utility for benchmark outputs written to `benchmarks/results.json`.
 
 ## Real vs Limited
@@ -28,12 +29,11 @@ Real today:
 - HuggingFace KV extraction via `transformers`.
 - Encoder and decoder round-trip tests.
 - End-to-end vLLM benchmark execution through `AsyncLLMEngine`.
-- Transfer metrics collected from `RequestOutput.kv_transfer_params`.
+- Transfer metrics collected from `RequestOutput.kv_transfer_params`, including exact serialized-byte accounting.
 - Plot generation for:
-  `benchmarks/ttft_by_model_mode.png`
-  `benchmarks/throughput_by_model_mode.png`
-  `benchmarks/compression_ratio_by_mode.png`
-  `benchmarks/network_time_by_mode_bandwidth.png`
+  `benchmarks/ttft_comparison_3gbps.png`
+  `benchmarks/transport_breakdown_3gbps.png`
+- A first-class Colab notebook at `notebooks/ttft_repro_colab.ipynb`.
 
 Limited today:
 
@@ -66,21 +66,19 @@ Treat those `opt-1.3b` files as archived reference material rather than outputs 
 ## Validated Commands
 
 - Core tests:
-  `pytest tests/test_encoder.py tests/test_decoder.py tests/test_run_benchmarks.py tests/test_visualize_results.py -q`
+  `pytest tests/test_encoder.py tests/test_decoder.py tests/test_run_benchmarks.py tests/test_connector_payload_utils.py tests/test_visualize_results.py -q`
 - Extractor test:
   `pytest tests/test_extractor.py -q`
 - Generate end-to-end benchmark data:
-  `python run_benchmarks.py --modes baseline cachegen --bandwidth-mbps 100 500 1000`
+  `python run_benchmarks.py --modes quantized_fp8 cachegen --bandwidth-mbps 3000 --prompt-lengths 2048 4096 --repeats 5`
 - Generate current scripted plots:
   `python visualize_results.py`
 
 Current benchmark outputs from those scripts are:
 
 - `benchmarks/results.json`
-- `benchmarks/ttft_by_model_mode.png`
-- `benchmarks/throughput_by_model_mode.png`
-- `benchmarks/compression_ratio_by_mode.png`
-- `benchmarks/network_time_by_mode_bandwidth.png`
+- `benchmarks/ttft_comparison_3gbps.png`
+- `benchmarks/transport_breakdown_3gbps.png`
 
 ## Repo Boundaries
 
