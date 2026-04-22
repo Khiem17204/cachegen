@@ -711,6 +711,14 @@ class CacheGenConnector(KVConnectorBase_V1):
 
 
 def align_to_block_size(num_tokens: int, block_size: int) -> int:
-    if num_tokens <= 0:
+    """Return the largest block-aligned cached prefix below ``num_tokens``.
+
+    The v1 scheduler requires a connector-backed prefill request to still have
+    some local work left to schedule. Matching the entire prompt can drive the
+    scheduler into a ``num_new_tokens == 0`` assertion on the first measured
+    pass, so we intentionally reserve the final partial/full block for local
+    compute and only advertise the strict prefix as externally loadable.
+    """
+    if num_tokens <= 1:
         return 0
-    return (num_tokens // block_size) * block_size
+    return ((num_tokens - 1) // block_size) * block_size
