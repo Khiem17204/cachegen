@@ -76,6 +76,17 @@ class TestKVCacheExtractor:
         tensor = extractor.extract(self.PROMPT)
         assert tensor.is_contiguous(), "Tensor is not contiguous"
 
+    def test_extract_from_input_ids_matches_prompt_extraction(self, extractor, tokenizer):
+        """Token-level extraction should match prompt-based extraction."""
+        input_ids = tokenizer(self.PROMPT, return_tensors="pt")["input_ids"]
+
+        from_prompt = extractor.extract(self.PROMPT)
+        from_ids = extractor.extract_from_input_ids(input_ids)
+
+        assert from_ids.shape == from_prompt.shape
+        assert from_ids.dtype == from_prompt.dtype
+        assert torch.equal(from_ids, from_prompt)
+
     @pytest.mark.parametrize(
         "prompt",
         [

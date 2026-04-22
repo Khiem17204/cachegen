@@ -35,4 +35,5 @@ ENV/
 # Project specific
 *.pt
 *.json
+!benchmarks/offline_subset_results.json
 kv_cache.pt

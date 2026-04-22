@@ -12,6 +12,8 @@ from typing import Any, Optional, Union
 import torch
 from transformers import PreTrainedModel, PreTrainedTokenizerBase
 
+from .cache_conversion import past_key_values_to_tensor
+
 
 class KVCacheExtractor:
     """Extract KV cache tensors from a HuggingFace causal LM.
@@ -75,6 +77,27 @@ class KVCacheExtractor:
         past_key_values = outputs.past_key_values
         return self._reshape(past_key_values)
 
+    def extract_from_input_ids(self, input_ids: torch.Tensor) -> torch.Tensor:
+        """Run a prefill pass from exact token IDs and return standardized KV.
+
+        Args:
+            input_ids: Token IDs shaped ``[seq_len]`` or ``[1, seq_len]``.
+
+        Returns:
+            A ``torch.Tensor`` of shape
+            ``[num_layers, 2, num_kv_heads, seq_len, head_dim]``,
+            dtype ``torch.float16``, contiguous in memory.
+        """
+        if input_ids.ndim == 1:
+            input_ids = input_ids.unsqueeze(0)
+        if input_ids.ndim != 2 or input_ids.shape[0] != 1:
+            raise ValueError("input_ids must be shaped [seq_len] or [1, seq_len]")
+
+        with torch.no_grad():
+            outputs = self.model(input_ids.to(self.device), use_cache=True)
+
+        return self._reshape(outputs.past_key_values)
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -116,25 +139,7 @@ class KVCacheExtractor:
             ``[num_layers, 2, num_kv_heads, seq_len, head_dim]``,
             contiguous, FP16, on CPU.
         """
-        per_layer: list[torch.Tensor] = []
-
-        # ── DynamicCache (transformers ≥ 5) ─────────────────────────────
-        if hasattr(past_key_values, "layers"):
-            for layer in past_key_values.layers:
-                key = layer.keys  # [batch, heads, seq, dim]
-                value = layer.values
-                kv = torch.stack([key.squeeze(0), value.squeeze(0)], dim=0)
-                per_layer.append(kv)
-        else:
-            # ── Legacy tuple format ──────────────────────────────────────
-            for key, value in past_key_values:
-                kv = torch.stack([key.squeeze(0), value.squeeze(0)], dim=0)
-                per_layer.append(kv)
-
-        # Stack across layers → [num_layers, 2, num_kv_heads, seq_len, head_dim]
-        tensor = torch.stack(per_layer, dim=0)
-        # Move to CPU before FP16 conversion to avoid MPS issues on macOS
-        return tensor.cpu().contiguous().half()
+        return past_key_values_to_tensor(past_key_values, dtype=torch.float16, device="cpu")
 
     @staticmethod
     def _resolve_device(

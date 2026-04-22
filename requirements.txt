@@ -7,3 +7,4 @@ requests
 sacrebleu
 rouge-score
 pytest
+datasets
