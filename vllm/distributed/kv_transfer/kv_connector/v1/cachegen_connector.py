@@ -28,6 +28,13 @@ from vllm.distributed.kv_transfer.kv_connector.v1.base import (
     KVConnectorRole,
     KVConnectorWorkerMetadata,
 )
+from vllm.distributed.kv_transfer.kv_connector.v1.cachegen_payload_utils import (
+    build_transfer_stats,
+    empty_transfer_stats,
+    load_payload_from_bytes,
+    merge_transfer_stats,
+    serialize_payload_to_bytes,
+)
 from vllm.logger import init_logger
 from vllm.model_executor.layers.attention.mla_attention import MLACommonMetadata
 from vllm.utils.hashing import safe_hash
@@ -43,31 +50,6 @@ if TYPE_CHECKING:
     from vllm.v1.request import Request
 
 logger = init_logger(__name__)
-
-
-def _empty_stats() -> dict[str, float]:
-    return {
-        "raw_bytes": 0.0,
-        "compressed_bytes": 0.0,
-        "compression_ratio": 1.0,
-        "network_time": 0.0,
-        "decode_time": 0.0,
-    }
-
-
-def _merge_stats(lhs: dict[str, float], rhs: dict[str, float]) -> dict[str, float]:
-    merged = {
-        "raw_bytes": lhs.get("raw_bytes", 0.0) + rhs.get("raw_bytes", 0.0),
-        "compressed_bytes": lhs.get("compressed_bytes", 0.0)
-        + rhs.get("compressed_bytes", 0.0),
-        "network_time": lhs.get("network_time", 0.0) + rhs.get("network_time", 0.0),
-        "decode_time": lhs.get("decode_time", 0.0) + rhs.get("decode_time", 0.0),
-        "compression_ratio": 1.0,
-    }
-    compressed = max(merged["compressed_bytes"], 1.0)
-    if merged["raw_bytes"] > 0:
-        merged["compression_ratio"] = merged["raw_bytes"] / compressed
-    return merged
 
 
 @dataclass
@@ -133,7 +115,7 @@ class CacheGenConnectorMetadata(KVConnectorMetadata):
 
 @dataclass
 class CacheGenConnectorWorkerMetadata(KVConnectorWorkerMetadata):
-    request_stats: dict[str, dict[str, float]]
+    request_stats: dict[str, dict[str, float | int | bool]]
 
     def aggregate(
         self,
@@ -142,7 +124,10 @@ class CacheGenConnectorWorkerMetadata(KVConnectorWorkerMetadata):
         assert isinstance(other, CacheGenConnectorWorkerMetadata)
         merged = dict(self.request_stats)
         for req_id, other_stats in other.request_stats.items():
-            merged[req_id] = _merge_stats(merged.get(req_id, _empty_stats()), other_stats)
+            merged[req_id] = merge_transfer_stats(
+                merged.get(req_id, empty_transfer_stats()),
+                other_stats,
+            )
         return CacheGenConnectorWorkerMetadata(request_stats=merged)
 
 
@@ -176,6 +161,7 @@ class CacheGenConnector(KVConnectorBase_V1):
         self._compression_level = int(
             self._kv_transfer_config.get_from_extra_config("compression_level", 3)
         )
+        self._kv_cache_dtype = str(vllm_config.cache_config.cache_dtype)
 
         if self._bandwidth_mbps <= 0:
             raise ValueError("bandwidth_mbps must be positive")
@@ -186,18 +172,19 @@ class CacheGenConnector(KVConnectorBase_V1):
         self._warned_nonstandard_shape = False
 
         # Worker -> scheduler: stats collected in this worker process.
-        self._worker_request_stats: dict[str, dict[str, float]] = {}
+        self._worker_request_stats: dict[str, dict[str, float | int | bool]] = {}
         # Scheduler-side stats merged from worker metadata and used by request_finished.
-        self._scheduler_request_stats: dict[str, dict[str, float]] = {}
+        self._scheduler_request_stats: dict[str, dict[str, float | int | bool]] = {}
 
         if self._cachegen_enabled:
             self._ensure_cachegen_modules()
 
         logger.info(
             "CacheGenConnector initialized: role=%s cachegen_enabled=%s "
-            "bandwidth_mbps=%.3f storage=%s",
+            "kv_cache_dtype=%s bandwidth_mbps=%.3f storage=%s",
             role,
             self._cachegen_enabled,
+            self._kv_cache_dtype,
             self._bandwidth_mbps,
             str(self._storage_path),
         )
@@ -332,7 +319,7 @@ class CacheGenConnector(KVConnectorBase_V1):
         assert self._encoder is not None
 
         canonical_kv, shape_meta = self._canonicalize_for_cachegen(kv_cache_cpu)
-        raw_bytes = int(kv_cache_cpu.numel() * kv_cache_cpu.element_size())
+        raw_tensor_bytes = int(kv_cache_cpu.numel() * kv_cache_cpu.element_size())
         prepared = self._to_encoder_input(canonical_kv)
         encoded_chunks = self._encoder.encode(prepared)
         chunks_payload = [
@@ -344,15 +331,14 @@ class CacheGenConnector(KVConnectorBase_V1):
             }
             for chunk in encoded_chunks
         ]
-        compressed_bytes = int(sum(len(chunk["data"]) for chunk in chunks_payload))
 
         return {
             "format_version": self._FORMAT_VERSION,
             "kv_format": "cachegen",
             "shape_meta": shape_meta,
             "raw_dtype": kv_cache_cpu.dtype,
-            "raw_bytes": raw_bytes,
-            "compressed_bytes": compressed_bytes,
+            "raw_tensor_bytes": raw_tensor_bytes,
+            "raw_bytes": raw_tensor_bytes,
             "chunks": chunks_payload,
         }
 
@@ -393,12 +379,12 @@ class CacheGenConnector(KVConnectorBase_V1):
         return kv_cache_cpu, decode_time
 
     def _serialize_raw_payload(self, kv_cache_cpu: torch.Tensor) -> dict[str, Any]:
-        raw_bytes = int(kv_cache_cpu.numel() * kv_cache_cpu.element_size())
+        raw_tensor_bytes = int(kv_cache_cpu.numel() * kv_cache_cpu.element_size())
         return {
             "format_version": self._FORMAT_VERSION,
             "kv_format": "raw",
-            "raw_bytes": raw_bytes,
-            "compressed_bytes": raw_bytes,
+            "raw_tensor_bytes": raw_tensor_bytes,
+            "raw_bytes": raw_tensor_bytes,
             "raw_tensor": kv_cache_cpu,
         }
 
@@ -414,47 +400,51 @@ class CacheGenConnector(KVConnectorBase_V1):
                 )
                 self._warned_nonstandard_shape = True
             payload = self._serialize_raw_payload(kv_cache_cpu)
+            payload["raw_fallback"] = bool(self._cachegen_enabled)
 
         filename.parent.mkdir(parents=True, exist_ok=True)
-        torch.save(payload, filename)
+        blob = serialize_payload_to_bytes(payload)
+        filename.write_bytes(blob)
 
     def _load_layer_payload(
         self,
         filename: Path,
-    ) -> tuple[torch.Tensor, dict[str, float]]:
-        try:
-            payload = torch.load(filename, map_location="cpu", weights_only=False)
-        except TypeError:
-            payload = torch.load(filename, map_location="cpu")
+    ) -> tuple[torch.Tensor, dict[str, float | int | bool]]:
+        blob = filename.read_bytes()
+        bytes_to_transfer = len(blob)
+        payload = load_payload_from_bytes(blob)
         kv_format = payload.get("kv_format", "raw")
+        raw_tensor_bytes = int(payload.get("raw_tensor_bytes", payload.get("raw_bytes", 0)))
 
         if kv_format == "raw":
             kv_cache_cpu = payload["raw_tensor"].contiguous()
-            bytes_to_transfer = int(payload.get("compressed_bytes", payload["raw_bytes"]))
             delay = self._network_delay(bytes_to_transfer)
             time.sleep(delay)
-            stats = {
-                "raw_bytes": float(payload["raw_bytes"]),
-                "compressed_bytes": float(bytes_to_transfer),
-                "network_time": delay,
-                "decode_time": 0.0,
-            }
+            stats = build_transfer_stats(
+                raw_tensor_bytes=raw_tensor_bytes,
+                transmitted_bytes=bytes_to_transfer,
+                network_time=delay,
+                decode_time=0.0,
+                cachegen_applied=False,
+                raw_fallback_layers=1 if payload.get("raw_fallback", False) else 0,
+            )
             return kv_cache_cpu, stats
 
         if kv_format != "cachegen":
             raise ValueError(f"Unsupported kv_format={kv_format!r} in {filename}")
 
-        compressed_bytes = int(payload["compressed_bytes"])
-        delay = self._network_delay(compressed_bytes)
+        delay = self._network_delay(bytes_to_transfer)
         time.sleep(delay)
 
         kv_cache_cpu, decode_time = self._deserialize_cachegen_payload(payload)
-        stats = {
-            "raw_bytes": float(payload["raw_bytes"]),
-            "compressed_bytes": float(compressed_bytes),
-            "network_time": delay,
-            "decode_time": decode_time,
-        }
+        stats = build_transfer_stats(
+            raw_tensor_bytes=raw_tensor_bytes,
+            transmitted_bytes=bytes_to_transfer,
+            network_time=delay,
+            decode_time=decode_time,
+            cachegen_applied=True,
+            raw_fallback_layers=0,
+        )
         return kv_cache_cpu, stats
 
     def start_load_kv(self, forward_context: "ForwardContext", **kwargs: Any) -> None:
@@ -470,7 +460,7 @@ class CacheGenConnector(KVConnectorBase_V1):
             if req.is_store:
                 continue
 
-            req_stats = _empty_stats()
+            req_stats = empty_transfer_stats()
             for layer_name in forward_context.no_compile_layers:
                 layer = forward_context.no_compile_layers[layer_name]
                 kv_cache_layer = getattr(layer, "kv_cache", None)
@@ -483,7 +473,7 @@ class CacheGenConnector(KVConnectorBase_V1):
 
                 filename = self._generate_filename(layer_name, req.token_ids, req.mm_hashes)
                 kv_cache_cpu, layer_stats = self._load_layer_payload(filename)
-                req_stats = _merge_stats(req_stats, layer_stats)
+                req_stats = merge_transfer_stats(req_stats, layer_stats)
 
                 kv_cache_device = kv_cache_cpu.to(
                     device=kv_cache_layer.device,
@@ -498,8 +488,8 @@ class CacheGenConnector(KVConnectorBase_V1):
                     self._block_size,
                 )
 
-            self._worker_request_stats[req.request_id] = _merge_stats(
-                self._worker_request_stats.get(req.request_id, _empty_stats()),
+            self._worker_request_stats[req.request_id] = merge_transfer_stats(
+                self._worker_request_stats.get(req.request_id, empty_transfer_stats()),
                 req_stats,
             )
 
@@ -631,8 +621,8 @@ class CacheGenConnector(KVConnectorBase_V1):
             return
 
         for req_id, stats in meta.request_stats.items():
-            self._scheduler_request_stats[req_id] = _merge_stats(
-                self._scheduler_request_stats.get(req_id, _empty_stats()),
+            self._scheduler_request_stats[req_id] = merge_transfer_stats(
+                self._scheduler_request_stats.get(req_id, empty_transfer_stats()),
                 stats,
             )
 
@@ -641,17 +631,28 @@ class CacheGenConnector(KVConnectorBase_V1):
         request: "Request",
         block_ids: list[int],
     ) -> tuple[bool, dict[str, Any] | None]:
-        stats = self._scheduler_request_stats.pop(request.request_id, _empty_stats())
-        compressed = max(stats["compressed_bytes"], 1.0)
-        ratio = stats["raw_bytes"] / compressed if stats["raw_bytes"] > 0 else 1.0
+        stats = self._scheduler_request_stats.pop(request.request_id, empty_transfer_stats())
+        transmitted_bytes = int(stats["transmitted_bytes"])
+        raw_tensor_bytes = int(stats["raw_tensor_bytes"])
+        ratio = (
+            raw_tensor_bytes / transmitted_bytes
+            if raw_tensor_bytes > 0 and transmitted_bytes > 0
+            else 1.0
+        )
 
         kv_transfer_params = {
-            "raw_bytes": int(stats["raw_bytes"]),
-            "compressed_bytes": int(stats["compressed_bytes"]),
+            "raw_tensor_bytes": raw_tensor_bytes,
+            "transmitted_bytes": transmitted_bytes,
+            "transport_ratio": float(ratio),
+            "raw_bytes": raw_tensor_bytes,
+            "compressed_bytes": transmitted_bytes,
             "compression_ratio": float(ratio),
             "network_time": float(stats["network_time"]),
             "decode_time": float(stats["decode_time"]),
             "cachegen_enabled": self._cachegen_enabled,
+            "cachegen_applied": bool(stats["cachegen_applied"]),
+            "raw_fallback_layers": int(stats["raw_fallback_layers"]),
+            "kv_cache_dtype": self._kv_cache_dtype,
             "bandwidth_mbps": float(self._bandwidth_mbps),
         }
         return False, kv_transfer_params
