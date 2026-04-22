@@ -15,7 +15,7 @@ The repo currently includes:
 - offline KV extraction for HuggingFace causal language models
 - an `int8`-based serialized compression pipeline with required scale sidecar data
 - a shared TTFT benchmark core in `ttft_benchmark.py` used by both the CLI and the Colab notebook
-- a `run_benchmarks.py` CLI that compares `quantized_fp8` against `cachegen` through a vendored vLLM `CacheGenConnector`
+- a `run_benchmarks.py` CLI that compares a plain `quantized_fp8` baseline against connector-backed `cachegen`
 - a plotting script in `visualize_results.py` that renders the TTFT and transport plots from `benchmarks/results.json`
 - a first-class Colab notebook in `notebooks/ttft_repro_colab.ipynb`
 
@@ -30,7 +30,7 @@ The repo does not currently include:
 
 - You can extract KV tensors with `kv_extraction_hf/`.
 - You can encode and decode KV tensors with the local encoder/decoder modules.
-- You can run a true end-to-end `quantized_fp8` vs `cachegen` TTFT benchmark through vendored vLLM with `run_benchmarks.py`.
+- You can run a true end-to-end TTFT benchmark where `quantized_fp8` uses plain generation and `cachegen` uses vendored vLLM connector transfer.
 - You can render the current TTFT-focused plot set from `benchmarks/results.json` with `visualize_results.py`.
 - You can execute the same benchmark code path on Colab with `notebooks/ttft_repro_colab.ipynb`.
 
@@ -40,8 +40,8 @@ Real today:
 
 - `run_benchmarks.py` drives real vLLM generation through `AsyncLLMEngine`.
 - The benchmark path compares:
-  - `quantized_fp8`: `cachegen_enabled=false`, `kv_cache_dtype="fp8"`
-  - `cachegen`: `cachegen_enabled=true`, `kv_cache_dtype="auto"`
+  - `quantized_fp8`: plain generation with `kv_cache_dtype="fp8"`
+  - `cachegen`: connector-backed transfer with `cachegen_enabled=true`, `kv_cache_dtype="auto"`
 - The benchmark records transfer stats from `RequestOutput.kv_transfer_params`.
 - The connector accounts for exact serialized bytes written to disk and surfaces `raw_tensor_bytes`, `transmitted_bytes`, `transport_ratio`, `network_time`, `decode_time`, `cachegen_applied`, `raw_fallback_layers`, and `kv_cache_dtype`.
 - `--bandwidth-mbps` is used as real throttling in the connector load path.

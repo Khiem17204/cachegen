@@ -6,7 +6,7 @@ from ttft_benchmark import (
     build_claim_check,
     build_prompt_specs,
     get_mode_config,
-    validate_measured_run,
+    validate_cachegen_measured_run,
 )
 
 
@@ -61,10 +61,13 @@ def test_mode_mapping_uses_fp8_only_for_quantized_fp8() -> None:
 
     assert quantized_fp8.kv_cache_dtype == "fp8"
     assert quantized_fp8.cachegen_enabled is False
+    assert quantized_fp8.uses_kv_transfer is False
     assert cachegen.kv_cache_dtype == "auto"
     assert cachegen.cachegen_enabled is True
+    assert cachegen.uses_kv_transfer is True
     assert raw_debug.kv_cache_dtype == "auto"
     assert raw_debug.cachegen_enabled is False
+    assert raw_debug.uses_kv_transfer is False
 
 
 def test_build_prompt_specs_returns_two_exact_windows_per_length() -> None:
@@ -125,8 +128,7 @@ def test_extract_transfer_stats_keeps_zero_bytes() -> None:
 
 def test_validate_measured_run_rejects_cachegen_fallback() -> None:
     with pytest.raises(RuntimeError, match="fell back to raw transfer"):
-        validate_measured_run(
-            mode="cachegen",
+        validate_cachegen_measured_run(
             cached_tokens=128,
             transfer_stats={
                 "cachegen_enabled": True,

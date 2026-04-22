@@ -21,18 +21,19 @@ python run_benchmarks.py \
 python visualize_results.py
 ```
 
-`run_benchmarks.py` benchmarks the paper-facing transfer comparator through the vendored vLLM connector:
+`run_benchmarks.py` benchmarks a plain baseline against the vendored CacheGen connector path:
 
-- `quantized_fp8`: raw transfer with `cachegen_enabled=false`, `kv_cache_dtype="fp8"`
+- `quantized_fp8`: plain generation with `kv_cache_dtype="fp8"`
 - `cachegen`: CacheGen transfer with `cachegen_enabled=true`, `kv_cache_dtype="auto"`
 
 For each `(model, mode, bandwidth)` combination, the script:
 
 1. warms the engine once
 2. builds deterministic tokenizer-exact prompts from `prompt_corpus.txt`
-3. clears the cache store for every seed/measured prompt pair
-4. runs a seed pass that populates external KV storage
-5. runs a measured pass that reloads KV and records transfer-aware metrics
+3. uses the plain one-pass path for `quantized_fp8`
+4. clears the cache store for every `cachegen` seed/measured prompt pair
+5. runs a seed pass that populates external KV storage for `cachegen`
+6. runs a measured pass that reloads KV and records transfer-aware metrics for `cachegen`
 
 ## Current Scripted Outputs
 

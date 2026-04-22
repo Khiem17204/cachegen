@@ -62,6 +62,7 @@ class TransferModeConfig:
     name: str
     cachegen_enabled: bool
     kv_cache_dtype: str
+    uses_kv_transfer: bool = False
     paper_facing: bool = True
 
 
@@ -70,16 +71,19 @@ MODE_CONFIGS: dict[str, TransferModeConfig] = {
         name="quantized_fp8",
         cachegen_enabled=False,
         kv_cache_dtype="fp8",
+        uses_kv_transfer=False,
     ),
     "cachegen": TransferModeConfig(
         name="cachegen",
         cachegen_enabled=True,
         kv_cache_dtype="auto",
+        uses_kv_transfer=True,
     ),
     "raw_debug": TransferModeConfig(
         name="raw_debug",
         cachegen_enabled=False,
         kv_cache_dtype="auto",
+        uses_kv_transfer=False,
         paper_facing=False,
     ),
 }
@@ -391,6 +395,27 @@ def _build_kv_transfer_config(
     )
 
 
+def _build_prompt_input(prompt_spec: PromptSpec) -> dict[str, Any]:
+    return {"prompt_token_ids": list(prompt_spec.prompt_token_ids)}
+
+
+def _plain_mode_transfer_stats(mode_config: TransferModeConfig) -> dict[str, float | int | bool | str]:
+    return {
+        "raw_tensor_bytes": 0,
+        "transmitted_bytes": 0,
+        "transport_ratio": 1.0,
+        "network_time": 0.0,
+        "decode_time": 0.0,
+        "cachegen_enabled": mode_config.cachegen_enabled,
+        "cachegen_applied": False,
+        "raw_fallback_layers": 0,
+        "kv_cache_dtype": mode_config.kv_cache_dtype,
+        "raw_bytes": 0,
+        "compressed_bytes": 0,
+        "compression_ratio": 1.0,
+    }
+
+
 async def _generate_once(
     engine: AsyncLLMEngine,
     model_label: str,
@@ -404,25 +429,26 @@ async def _generate_once(
         f"{_slugify_model(model_label)}-{mode_label}-{prompt_spec.prompt_id}"
         f"-{request_suffix}-{int(submitted_at * 1e6)}"
     )
+    prompt_input = _build_prompt_input(prompt_spec)
 
     first_token_at: float | None = None
     final = None
 
     try:
         stream = engine.generate(
-            prompt_spec.prompt_token_ids,
+            prompt_input,
             sampling_params,
             request_id=request_id,
         )
     except TypeError:
         try:
             stream = engine.generate(
-                prompt_spec.prompt_token_ids,
+                prompt_input,
                 params=sampling_params,
                 request_id=request_id,
             )
         except TypeError:
-            stream = engine.generate(prompt_spec.prompt_token_ids)
+            stream = engine.generate(prompt_input)
 
     async for output in stream:
         if first_token_at is None:
@@ -461,20 +487,15 @@ async def _generate_once(
     }
 
 
-def validate_measured_run(
-    mode: str,
+def validate_cachegen_measured_run(
     cached_tokens: int,
     transfer_stats: dict[str, float | int | bool | str],
 ) -> None:
     if cached_tokens <= 0:
         raise RuntimeError(
-            f"Measured pass for mode={mode} reported cached_tokens={cached_tokens}; "
+            f"Measured pass for mode=cachegen reported cached_tokens={cached_tokens}; "
             "expected a cache hit."
         )
-
-    if mode != "cachegen":
-        return
-
     if not bool(transfer_stats["cachegen_enabled"]):
         raise RuntimeError("CacheGen mode ran without cachegen_enabled=true in connector stats.")
     if not bool(transfer_stats["cachegen_applied"]):
@@ -517,8 +538,7 @@ async def _bench_single_prompt_two_pass(
     )
 
     transfer_stats = extract_transfer_stats(measured["kv_transfer_params"])
-    validate_measured_run(
-        mode=mode_label,
+    validate_cachegen_measured_run(
         cached_tokens=measured["cached_tokens"],
         transfer_stats=transfer_stats,
     )
@@ -553,6 +573,55 @@ async def _bench_single_prompt_two_pass(
     )
 
 
+async def _bench_single_prompt_plain(
+    engine: AsyncLLMEngine,
+    model_label: str,
+    mode_config: TransferModeConfig,
+    prompt_spec: PromptSpec,
+    repetition: int,
+    sampling_params: SamplingParams,
+    bandwidth_mbps: float,
+) -> RunResult:
+    measured = await _generate_once(
+        engine=engine,
+        model_label=model_label,
+        mode_label=mode_config.name,
+        prompt_spec=prompt_spec,
+        request_suffix=f"plain-r{repetition}",
+        sampling_params=sampling_params,
+    )
+    transfer_stats = _plain_mode_transfer_stats(mode_config)
+
+    return RunResult(
+        model=model_label,
+        mode=mode_config.name,
+        repetition=repetition,
+        prompt_id=prompt_spec.prompt_id,
+        prompt_length_tokens_requested=prompt_spec.length_tokens,
+        prompt_length_tokens=measured["prompt_tokens"],
+        prompt_instance_index=prompt_spec.instance_index,
+        prompt_offset_tokens=prompt_spec.offset_tokens,
+        bandwidth_mbps=float(bandwidth_mbps),
+        output_tokens=measured["generated_tokens"],
+        cached_tokens=measured["cached_tokens"],
+        ttft_seconds=measured["ttft"],
+        end_to_end_seconds=measured["total"],
+        tokens_per_second=measured["tokens_per_second"],
+        raw_tensor_bytes=int(transfer_stats["raw_tensor_bytes"]),
+        transmitted_bytes=int(transfer_stats["transmitted_bytes"]),
+        transport_ratio=float(transfer_stats["transport_ratio"]),
+        network_time=float(transfer_stats["network_time"]),
+        decode_time=float(transfer_stats["decode_time"]),
+        cachegen_enabled=bool(transfer_stats["cachegen_enabled"]),
+        cachegen_applied=bool(transfer_stats["cachegen_applied"]),
+        raw_fallback_layers=int(transfer_stats["raw_fallback_layers"]),
+        kv_cache_dtype=str(transfer_stats["kv_cache_dtype"]),
+        raw_bytes=int(transfer_stats["raw_bytes"]),
+        compressed_bytes=int(transfer_stats["compressed_bytes"]),
+        compression_ratio=float(transfer_stats["compression_ratio"]),
+    )
+
+
 async def _warmup_engine(
     engine: AsyncLLMEngine,
     model_label: str,
@@ -560,8 +629,10 @@ async def _warmup_engine(
     prompt_spec: PromptSpec,
     sampling_params: SamplingParams,
     storage_path: Path,
+    clear_storage: bool,
 ) -> None:
-    _clear_dir(storage_path)
+    if clear_storage:
+        _clear_dir(storage_path)
     await _generate_once(
         engine=engine,
         model_label=model_label,
@@ -587,25 +658,28 @@ async def bench_model_mode_bandwidth(
 ) -> list[RunResult]:
     ensure_vllm_available()
     mode_config = get_mode_config(mode)
-    kv_transfer_config = _build_kv_transfer_config(
-        mode=mode,
-        bandwidth_mbps=bandwidth_mbps,
-        storage_path=storage_path,
-    )
+    engine_kwargs: dict[str, Any] = {
+        "model": cfg.model,
+        "max_model_len": cfg.max_model_len,
+        "dtype": cfg.dtype,
+        "tensor_parallel_size": tensor_parallel_size,
+        "gpu_memory_utilization": gpu_memory_utilization,
+        "trust_remote_code": True,
+        "quantization": quantization,
+        "kv_cache_dtype": mode_config.kv_cache_dtype,
+        "enable_prefix_caching": False,
+        "enforce_eager": True,
+    }
+    if mode_config.uses_kv_transfer:
+        engine_kwargs["kv_transfer_config"] = _build_kv_transfer_config(
+            mode=mode,
+            bandwidth_mbps=bandwidth_mbps,
+            storage_path=storage_path,
+        )
+        engine_kwargs["disable_hybrid_kv_cache_manager"] = True
 
     args = AsyncEngineArgs(
-        model=cfg.model,
-        max_model_len=cfg.max_model_len,
-        dtype=cfg.dtype,
-        tensor_parallel_size=tensor_parallel_size,
-        gpu_memory_utilization=gpu_memory_utilization,
-        trust_remote_code=True,
-        quantization=quantization,
-        kv_cache_dtype=mode_config.kv_cache_dtype,
-        kv_transfer_config=kv_transfer_config,
-        enable_prefix_caching=False,
-        disable_hybrid_kv_cache_manager=True,
-        enforce_eager=True,
+        **engine_kwargs,
     )
 
     engine = AsyncLLMEngine.from_engine_args(args)
@@ -620,20 +694,32 @@ async def bench_model_mode_bandwidth(
             prompt_spec=warmup_prompt,
             sampling_params=sampling_params,
             storage_path=storage_path,
+            clear_storage=mode_config.uses_kv_transfer,
         )
 
         for repetition in range(1, repeats + 1):
             for prompt_spec in prompts:
-                result = await _bench_single_prompt_two_pass(
-                    engine=engine,
-                    model_label=cfg.model,
-                    mode_label=mode,
-                    prompt_spec=prompt_spec,
-                    repetition=repetition,
-                    sampling_params=sampling_params,
-                    bandwidth_mbps=bandwidth_mbps,
-                    storage_path=storage_path,
-                )
+                if mode_config.uses_kv_transfer:
+                    result = await _bench_single_prompt_two_pass(
+                        engine=engine,
+                        model_label=cfg.model,
+                        mode_label=mode,
+                        prompt_spec=prompt_spec,
+                        repetition=repetition,
+                        sampling_params=sampling_params,
+                        bandwidth_mbps=bandwidth_mbps,
+                        storage_path=storage_path,
+                    )
+                else:
+                    result = await _bench_single_prompt_plain(
+                        engine=engine,
+                        model_label=cfg.model,
+                        mode_config=mode_config,
+                        prompt_spec=prompt_spec,
+                        repetition=repetition,
+                        sampling_params=sampling_params,
+                        bandwidth_mbps=bandwidth_mbps,
+                    )
                 results.append(result)
     finally:
         shutdown = getattr(engine, "shutdown", None)

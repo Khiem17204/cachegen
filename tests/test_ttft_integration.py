@@ -27,10 +27,13 @@ def test_small_model_ttft_benchmark(tmp_path: Path) -> None:
     runs = report["runs"]
 
     assert runs
-    assert all(run["cached_tokens"] > 0 for run in runs)
     cachegen_runs = [run for run in runs if run["mode"] == "cachegen"]
+    baseline_runs = [run for run in runs if run["mode"] == "quantized_fp8"]
     assert cachegen_runs
+    assert baseline_runs
+    assert all(run["cached_tokens"] > 0 for run in cachegen_runs)
     assert all(run["cachegen_applied"] is True for run in cachegen_runs)
+    assert all(run["cachegen_applied"] is False for run in baseline_runs)
     transmitted_by_mode = {
         run["mode"]: run["transmitted_bytes"]
         for run in runs
