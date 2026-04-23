@@ -69,10 +69,14 @@ class ReqMeta:
         is_store: bool,
         mm_hashes: list[str],
     ) -> "ReqMeta":
-        valid_num_tokens = align_to_block_size(len(token_ids), block_size)
-        token_ids_tensor = torch.tensor(token_ids)[:valid_num_tokens]
         block_ids_tensor = torch.tensor(block_ids)
         num_blocks = block_ids_tensor.shape[0]
+        max_tokens_from_blocks = num_blocks * block_size
+        valid_num_tokens = min(
+            align_to_block_size(len(token_ids), block_size),
+            max_tokens_from_blocks,
+        )
+        token_ids_tensor = torch.tensor(token_ids)[:valid_num_tokens]
         block_offsets = torch.arange(0, block_size)
         slot_mapping = (
             block_offsets.reshape((1, block_size))
@@ -131,6 +135,13 @@ class CacheGenConnectorWorkerMetadata(KVConnectorWorkerMetadata):
         return CacheGenConnectorWorkerMetadata(request_stats=merged)
 
 
+@dataclass
+class _ChunkedStoreState:
+    block_ids: list[int]
+    prompt_token_ids: list[int]
+    mm_hashes: list[str]
+
+
 class CacheGenConnector(KVConnectorBase_V1):
     _FORMAT_VERSION = 1
 
@@ -175,6 +186,9 @@ class CacheGenConnector(KVConnectorBase_V1):
         self._worker_request_stats: dict[str, dict[str, float | int | bool]] = {}
         # Scheduler-side stats merged from worker metadata and used by request_finished.
         self._scheduler_request_stats: dict[str, dict[str, float | int | bool]] = {}
+        # Scheduler-side partial state used to accumulate chunked-prefill
+        # blocks until a full prompt prefix is available to save.
+        self._chunked_prefill_stores: dict[str, _ChunkedStoreState] = {}
 
         if self._cachegen_enabled:
             self._ensure_cachegen_modules()
@@ -575,6 +589,15 @@ class CacheGenConnector(KVConnectorBase_V1):
                 )
                 total_need_load += 1
             elif not self._found_match_for_prompt(token_ids, mm_hashes):
+                num_scheduled_tokens = scheduler_output.num_scheduled_tokens[new_req.req_id]
+                num_tokens = new_req.num_computed_tokens + num_scheduled_tokens
+                if num_tokens < len(token_ids):
+                    self._chunked_prefill_stores[new_req.req_id] = _ChunkedStoreState(
+                        block_ids=list(new_req.block_ids[0]),
+                        prompt_token_ids=list(token_ids),
+                        mm_hashes=mm_hashes,
+                    )
+                    continue
                 meta.add_request(
                     request_id=new_req.req_id,
                     token_ids=token_ids,
@@ -587,6 +610,40 @@ class CacheGenConnector(KVConnectorBase_V1):
         cached_reqs = scheduler_output.scheduled_cached_reqs
         for i, req_id in enumerate(cached_reqs.req_ids):
             resumed_from_preemption = req_id in cached_reqs.resumed_req_ids
+            if req_id in self._chunked_prefill_stores:
+                num_computed_tokens = cached_reqs.num_computed_tokens[i]
+                num_new_tokens = scheduler_output.num_scheduled_tokens[req_id]
+                new_block_ids = cached_reqs.new_block_ids[i]
+
+                state = self._chunked_prefill_stores[req_id]
+                block_ids = state.block_ids
+                if new_block_ids is not None:
+                    block_ids = (
+                        list(new_block_ids[0])
+                        if resumed_from_preemption
+                        else block_ids + list(new_block_ids[0])
+                    )
+
+                num_tokens = num_computed_tokens + num_new_tokens
+                if num_tokens < len(state.prompt_token_ids):
+                    self._chunked_prefill_stores[req_id] = _ChunkedStoreState(
+                        block_ids=block_ids,
+                        prompt_token_ids=state.prompt_token_ids,
+                        mm_hashes=state.mm_hashes,
+                    )
+                    continue
+
+                meta.add_request(
+                    request_id=req_id,
+                    token_ids=state.prompt_token_ids,
+                    block_ids=block_ids,
+                    block_size=self._block_size,
+                    is_store=True,
+                    mm_hashes=state.mm_hashes,
+                )
+                self._chunked_prefill_stores.pop(req_id, None)
+                continue
+
             if not resumed_from_preemption or req_id not in self._requests_need_load:
                 continue
 
@@ -631,6 +688,7 @@ class CacheGenConnector(KVConnectorBase_V1):
         request: "Request",
         block_ids: list[int],
     ) -> tuple[bool, dict[str, Any] | None]:
+        self._chunked_prefill_stores.pop(request.request_id, None)
         stats = self._scheduler_request_stats.pop(request.request_id, empty_transfer_stats())
         transmitted_bytes = int(stats["transmitted_bytes"])
         raw_tensor_bytes = int(stats["raw_tensor_bytes"])
