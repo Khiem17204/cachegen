@@ -306,10 +306,29 @@ class CacheGenConnector(KVConnectorBase_V1):
         dst_kv_cache_layer: torch.Tensor,
         src_kv_cache: torch.Tensor,
         slot_mapping: torch.Tensor,
-        attn_metadata: AttentionMetadata,
+        attn_metadata: AttentionMetadata | None,
         block_size: int,
     ) -> None:
         dst_shape = dst_kv_cache_layer.shape
+        if attn_metadata is None:
+            if dst_kv_cache_layer.ndim >= 4 and dst_shape[0] == 2:
+                num_pages = dst_shape[1]
+                page_size = dst_shape[2]
+                dst = dst_kv_cache_layer.reshape(2, num_pages * page_size, -1)
+                dst[:, slot_mapping, ...] = src_kv_cache
+                return
+            if dst_kv_cache_layer.ndim >= 4 and dst_shape[1] == 2:
+                num_pages = dst_shape[0]
+                page_size = dst_shape[2]
+                dst = dst_kv_cache_layer.permute(1, 0, 2, *range(3, dst_kv_cache_layer.ndim))
+                dst = dst.reshape(2, num_pages * page_size, -1)
+                dst[:, slot_mapping, ...] = src_kv_cache
+                return
+            raise ValueError(
+                "CacheGenConnector cannot inject KV without attn metadata for "
+                f"kv cache shape {tuple(dst_shape)}"
+            )
+
         if isinstance(attn_metadata, MLACommonMetadata):
             num_pages = dst_shape[0]
             page_size = dst_shape[1]
@@ -467,8 +486,7 @@ class CacheGenConnector(KVConnectorBase_V1):
 
         attn_metadata = forward_context.attn_metadata
         if attn_metadata is None:
-            logger.warning("CacheGenConnector.start_load_kv called with no attn metadata")
-            return
+            logger.debug("CacheGenConnector.start_load_kv proceeding without attn metadata")
 
         for req in metadata.requests:
             if req.is_store:

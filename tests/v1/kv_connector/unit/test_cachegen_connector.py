@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 import pytest
+import torch
 
 from tests.v1.kv_connector.unit.utils import create_vllm_config
 from vllm.distributed.kv_transfer.kv_connector.v1.base import KVConnectorRole
@@ -118,3 +119,26 @@ def test_build_connector_meta_accumulates_chunked_prefill_store(tmp_path) -> Non
     assert req.token_ids.numel() == 4080
     assert req.slot_mapping.numel() == 4080
     assert request_id not in connector._chunked_prefill_stores
+
+
+def test_inject_kv_into_layer_without_attn_metadata_uses_shape_fallback() -> None:
+    layer = torch.zeros((2, 2, 4, 1), dtype=torch.float32)
+    src = torch.tensor(
+        [
+            [[1.0], [2.0], [3.0]],
+            [[10.0], [20.0], [30.0]],
+        ],
+        dtype=torch.float32,
+    )
+    slot_mapping = torch.tensor([0, 3, 7], dtype=torch.int64)
+
+    CacheGenConnector._inject_kv_into_layer(
+        layer,
+        src,
+        slot_mapping,
+        attn_metadata=None,
+        block_size=4,
+    )
+
+    flat = layer.reshape(2, 8, 1)
+    assert torch.equal(flat[:, slot_mapping, :], src)
