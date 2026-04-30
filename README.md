@@ -1,92 +1,68 @@
 # cachegen
 
-This repository contains a CacheGen-style prototype with three main pieces:
+This repository contains the experimental plan and architecture for reproducing the core claims of **CacheGen: KV Cache Compression and Streaming for Fast Large Language Model Serving**.
 
-- HuggingFace KV extraction in `kv_extraction_hf/`
-- local encoder/decoder modules in `encoder/` and `decoder/`
-- a Colab-ready TTFT benchmark path that uses a vendored vLLM integration under `third_party/vllm/`
+## Primary Goal
 
-The top-level docs in this repo are intended to describe the code as it exists today, not just the original paper-reproduction plan.
+Verify that KV cache compression yields a **3–4x compression ratio**, **reduces KV loading latency** over networks, and maintains **minimal impact on model quality**.
 
-## Current State
+---
 
-The repo currently includes:
+## Implementation Approach
 
-- offline KV extraction for HuggingFace causal language models
-- an `int8`-based serialized compression pipeline with required scale sidecar data
-- a shared TTFT benchmark core in `ttft_benchmark.py` used by both the CLI and the Colab notebook
-- a `run_benchmarks.py` CLI that compares a plain `quantized_fp8` baseline against connector-backed `cachegen`
-- a plotting script in `visualize_results.py` that renders the TTFT and transport plots from `benchmarks/results.json`
-- a first-class Colab notebook in `notebooks/ttft_repro_colab.ipynb`
+To minimize engineering bottlenecks with memory management, this reproduction utilizes a **Two-Phase Strategy**:
 
-The repo does not currently include:
+* **Phase A: HuggingFace Offline (Stages 1–3):** Extract contiguous KV tensors using standard HuggingFace `transformers`. This allows agents to quickly build datasets, implement core algorithms (quantization, delta encoding, `zstd`), and verify compression ratios in an isolated, static environment.
+* **Phase B: vLLM Online (Stages 4–5):** Once encoder/decoder logic is proven, port the compression algorithms directly into vLLM's PagedAttention block manager. This enables accurate testing of streaming latency and Time to First Token (TTFT) in a real-world serving scenario.
 
-- a verified reproduction of the paper's headline `3-4x` compression claim across published settings
-- real BLEU, ROUGE, or perplexity evaluation in the current benchmark harness
-- generated support for `benchmarks/quality_deltas.png`
-- a guarantee that archived live benchmark artifacts are reproducible from the current scripts
+---
 
-## What Works
+## Phase A Objectives (HuggingFace)
 
-- You can extract KV tensors with `kv_extraction_hf/`.
-- You can encode and decode KV tensors with the local encoder/decoder modules.
-- You can run a true end-to-end TTFT benchmark where `quantized_fp8` uses plain generation and `cachegen` uses vendored vLLM connector transfer.
-- You can render the current TTFT-focused plot set from `benchmarks/results.json` with `visualize_results.py`.
-- You can execute the same benchmark code path on Colab with `notebooks/ttft_repro_colab.ipynb`.
+### Stage 1: Static KV Cache Extraction
 
-## Archived Artifacts
+* **Objective:** Intercept and extract raw FP16 KV tensors from models like LLaMA or Mistral using HuggingFace.
+* **Deliverable:** A baseline dataset of contiguous raw KV tensors saved to disk for offline compression testing.
 
-The following files are kept as archived/manual reference material rather than current benchmark outputs:
+### Stage 2: Encoder Implementation
 
-- `benchmarks/live_results_opt13b.json`
-- `benchmarks/live_results_opt13b.md`
-- `benchmarks/live_opt13b_latency.png`
+* **Objective:** Transform raw KV tensors into a compressed bitstream.
+* **Sub-objectives:** * *Chunking:* Split tensors into independent units.
+* *Quantization:* Convert FP16 to INT8/INT4 using Max-Abs scaling.
+* *Delta Encoding:* Compute differences between neighboring tokens.
+* *Entropy Coding:* Apply `zstd` compression to output the final bitstream.
 
-## Validated Commands
 
-Bootstrap the repo:
 
-```bash
-pip install -r requirements.txt
-git submodule update --init --recursive third_party/vllm
-pip install -e ./third_party/vllm
-```
+### Stage 3: Decoder Implementation
 
-Run the primary TTFT benchmark harness:
+* **Objective:** Reconstruct KV tensors from the compressed bitstream.
+* **Sub-objectives:** Perform inverse operations (entropy decoding, delta reconstruction, dequantization) to verify the tensor can be accurately rebuilt.
 
-```bash
-python run_benchmarks.py \
-  --modes quantized_fp8 cachegen \
-  --bandwidth-mbps 3000 \
-  --prompt-lengths 2048 4096 \
-  --repeats 5
-```
+---
 
-Current scripted output:
+## Phase B Objectives (vLLM)
 
-- `benchmarks/results.json`
+### Stage 4: vLLM Integration & Streaming Simulation
 
-Render the current plots:
+* **Objective:** Integrate the proven Phase A encoder/decoder directly into vLLM's cache engine.
+* **Sub-objectives:**
+  * Map the chunking logic to vLLM's existing PagedAttention physical blocks.
+  * Simulate network bandwidth constraints (e.g., 100 MB/s to 1 GB/s) to stream compressed blocks instead of full raw tensors.
 
-```bash
-python visualize_results.py
-```
 
-Current scripted plot outputs:
 
-- `benchmarks/ttft_comparison_3gbps.png`
-- `benchmarks/transport_breakdown_3gbps.png`
+### Stage 5: Evaluation & Baselines
 
-## Benchmark Notes
+* **Objective:** Establish non-compressed baselines in vLLM and run comparative experiments.
+* **Metrics to Capture:**
+  * *Compression Ratio:* Original size vs. compressed size.
+  * *Load/Decode Latency:* Ensure decode overhead (`Transfer Time + Decode Time`) is faster than raw transfer time.
+  * *Time to First Token (TTFT):* Measure end-to-end load and generation speed in the vLLM server.
+  * *Model Quality:* Verify output accuracy using perplexity, BLEU, and ROUGE on tasks like QA and summarization.
 
-- If no `--model` flags are provided, `run_benchmarks.py` defaults to `mistralai/Mistral-7B-Instruct-v0.3|8192|bfloat16`.
-- The CLI defaults to `--modes quantized_fp8 cachegen --bandwidth-mbps 3000 --prompt-lengths 2048 4096 --repeats 5 --max-tokens 16`.
-- Prompt construction is tokenizer-exact and deterministic. The benchmark builds two prompt instances per requested prompt length from `benchmarks/prompt_corpus.txt`.
-- The report schema is TTFT-focused and writes `meta`, `config`, `runs`, `summaries`, and `claim_check`.
-- `claim_check` explicitly reports whether the observed 3 Gbps speedup is below, within, or above the paper's `3.2-3.7x` range.
-- `benchmarks/quality_deltas.png` is not a current pipeline output and should not be referenced as one.
 
-## Repository Boundaries
+## Project Architecture & Scope
 
-- `third_party/` vendors external code. Normal repo cleanup should avoid changing vendored files unless the task explicitly requires it.
-- When prose and implementation disagree, prefer the code and tests.
+* **Modular Structure:** Code is divided cleanly into `kv_extraction_hf/`, `encoder/`, `decoder/`, `vllm_integration/`, and `experiments/`.
+* **MVP Simplification:** Prioritize basic quantization and `zstd` compression over complex custom entropy coding for the initial pass.
