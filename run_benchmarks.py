@@ -10,8 +10,8 @@ config = BenchmarkConfig(
         )
     ],
     modes=["quantized_fp8", "cachegen"],
-    bandwidth_mbps=[3000.0],
-    prompt_lengths=[2048, 4096],
+    bandwidth_mbps=[100, 300, 1000, 3000],
+    prompt_lengths=[2048, 4096, 8176],
     repeats=5,
     max_tokens=16,
     gpu_memory_utilization=0.85,
@@ -20,4 +20,5 @@ config = BenchmarkConfig(
 )
 if __name__ == "__main__":
     import asyncio
-    asyncio.run(run_benchmark_suite(config))
+    report = asyncio.run(run_benchmark_suite(config))
+    save_report(report, config.output_path)
